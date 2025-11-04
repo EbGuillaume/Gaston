@@ -69,7 +69,7 @@ class Book(Base):
 
     # Relations
     series = relationship("Series", back_populates="books")
-    metadata = relationship(
+    book_metadata = relationship(
         "Metadata", back_populates="book", uselist=False, cascade="all, delete-orphan"
     )
     duplicates_as_first = relationship(
