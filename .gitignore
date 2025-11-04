@@ -1,0 +1,104 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+coverage.xml
+*.cover
+.cache
+nosetests.xml
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Gaston specific
+/gaston.db
+/.gaston/
+config.yaml
+config.local.yaml
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.temp/
+frontend/.cache/
+
+# Temporary files
+*.tmp
+*.bak
+temp/
+tmp/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Archives de test
+tests/fixtures/sample_files/*.cbz
+tests/fixtures/sample_files/*.cbr
+tests/fixtures/sample_files/*.pdf
+tests/fixtures/sample_files/*.epub
+
+# Cache
+.cache/
+*.pyc

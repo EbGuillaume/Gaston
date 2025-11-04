@@ -1,0 +1,89 @@
+# Gaston Configuration Example
+# Copiez ce fichier vers config.yaml et adaptez-le à vos besoins
+
+gaston:
+  version: "0.1.0"
+
+  # Chemins des bibliothèques sources
+  library_paths:
+    - /mnt/nas/BD
+    - /mnt/nas/Comics
+    - /mnt/nas/Manga
+
+  # Dossier de sortie organisé
+  output_path: /mnt/nas/Organized
+
+  # Dossiers spéciaux
+  special_folders:
+    duplicates: /mnt/nas/duplicates
+    corrupted: /mnt/nas/corrupted
+    uncategorized: /mnt/nas/_uncategorized
+
+  # Organisation
+  organization:
+    target_format: komga
+    naming_pattern: "{series}/{series} {number:03d} - {title}"
+    create_oneshots_folder: true
+    create_integrales_folder: true
+    separate_by_publisher: false
+
+  # Métadonnées
+  metadata:
+    sources:
+      - name: bedetheque
+        enabled: true
+        priority: 1
+      - name: comicvine
+        enabled: true
+        priority: 2
+
+    auto_fetch: true
+    auto_validate_threshold: 0.90
+    cache_duration: null  # null = indéfini
+    store_covers_locally: true
+    covers_path: /mnt/nas/.gaston/covers
+
+  # Déduplication
+  deduplication:
+    enabled: true
+    methods:
+      - hash_exact
+      - name_fuzzy
+      - image_perceptual
+
+    format_priority:
+      - cbz
+      - cbr
+      - epub
+      - pdf
+
+    similarity_threshold: 0.85
+    auto_move_duplicates: true
+
+  # Scanning
+  scanning:
+    max_file_size: 1073741824  # 1 GB en bytes
+    scan_on_startup: false
+
+    file_extensions:
+      - .cbz
+      - .cbr
+      - .epub
+      - .pdf
+
+    ignore_hidden: true
+    detect_corrupted: true
+
+  # Performance
+  performance:
+    max_workers: null  # null = auto-detection CPU
+    max_memory_mb: null  # null = auto-detection
+    enable_cache: true
+    cache_path: /tmp/.gaston/cache
+
+  # API & Web
+  web:
+    host: 127.0.0.1
+    port: 8080
+    enable_cors: false
+    log_level: INFO

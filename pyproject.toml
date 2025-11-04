@@ -1,0 +1,138 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gaston"
+version = "0.1.0"
+description = "Smart library organizer for books, comics, manga, and BDs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Guillaume Ebbo", email = "guillaume.ebbo@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # API & Web
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "websockets==12.0",
+    "python-multipart==0.0.6",
+
+    # Base de données
+    "sqlalchemy==2.0.23",
+    "alembic==1.12.1",
+
+    # Archives
+    "rarfile==4.1",
+    "py7zr==0.20.8",
+
+    # Images
+    "Pillow==10.1.0",
+    "imagehash==4.3.1",
+    "opencv-python==4.8.1.78",
+
+    # OCR
+    "easyocr==1.7.1",
+
+    # Matching
+    "rapidfuzz==3.5.2",
+    "python-Levenshtein==0.23.0",
+
+    # Scraping
+    "httpx==0.25.2",
+    "beautifulsoup4==4.12.2",
+    "lxml==4.9.3",
+
+    # Métadonnées
+    "xmltodict==0.13.0",
+    "ebooklib==0.18",
+
+    # Utils
+    "pydantic==2.5.2",
+    "pyyaml==6.0.1",
+    "python-dotenv==1.0.0",
+    "rich==13.7.0",
+    "click==8.1.7",
+
+    # Async & Workers
+    "aiofiles==23.2.1",
+
+    # Monitoring
+    "psutil==5.9.6",
+
+    # Logs
+    "loguru==0.7.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.3",
+    "pytest-cov==4.1.0",
+    "pytest-asyncio==0.21.1",
+    "black==23.11.0",
+    "isort==5.12.0",
+    "flake8==6.1.0",
+    "mypy==1.7.1",
+    "pre-commit==3.5.0",
+    "httpx==0.25.2",
+]
+
+[project.scripts]
+gaston = "backend.api.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/EbGuillaume/Gaston"
+Repository = "https://github.com/EbGuillaume/Gaston"
+Issues = "https://github.com/EbGuillaume/Gaston/issues"
+
+[tool.setuptools]
+packages = ["backend"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=backend --cov-report=html --cov-report=term-missing"
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
