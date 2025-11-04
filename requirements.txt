@@ -1,0 +1,50 @@
+# API & Web
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+websockets==12.0
+python-multipart==0.0.6
+
+# Base de données
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# Archives
+rarfile==4.1
+py7zr==0.20.8
+
+# Images
+Pillow==10.1.0
+imagehash==4.3.1
+opencv-python==4.8.1.78
+
+# OCR
+easyocr==1.7.1
+
+# Matching
+rapidfuzz==3.5.2
+python-Levenshtein==0.23.0
+
+# Scraping
+httpx==0.25.2
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# Métadonnées
+xmltodict==0.13.0
+ebooklib==0.18
+
+# Utils
+pydantic==2.5.2
+pyyaml==6.0.1
+python-dotenv==1.0.0
+rich==13.7.0
+click==8.1.7
+
+# Async & Workers
+aiofiles==23.2.1
+
+# Monitoring
+psutil==5.9.6
+
+# Logs
+loguru==0.7.2
