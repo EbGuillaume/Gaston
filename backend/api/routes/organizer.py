@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.dependencies import get_db
 from backend.database.crud import BookCRUD, MetadataCRUD
+from backend.database.models import Book
 from backend.organizer import KomgaOrganizer, FileMover
 
 router = APIRouter(prefix="/api/organize", tags=["organization"])
@@ -75,7 +76,7 @@ async def preview_organization(request: PreviewRequest, db: Session = Depends(ge
             books = [b for b in books if b is not None]
         else:
             # Tous les livres avec métadonnées
-            books = db.query(BookCRUD).filter(BookCRUD.has_metadata == True).all()
+            books = db.query(Book).filter(BookCRUD.has_metadata == True).all()
 
         if not books:
             return PreviewResponse(
@@ -148,7 +149,7 @@ async def organize_library(request: OrganizeRequest, db: Session = Depends(get_d
             books = [b for b in books if b is not None]
         else:
             # Tous les livres avec métadonnées
-            books = db.query(BookCRUD).filter(BookCRUD.has_metadata == True).all()
+            books = db.query(Book).filter(BookCRUD.has_metadata == True).all()
 
         if not books:
             return OrganizeResponse(
@@ -363,21 +364,21 @@ async def inject_comicinfo_to_book(book_id: int, db: Session = Depends(get_db)):
 async def get_organization_stats(db: Session = Depends(get_db)):
     """Get statistics about library organization."""
     try:
-        total_books = db.query(BookCRUD).count()
+        total_books = db.query(Book).count()
         books_with_metadata = (
-            db.query(BookCRUD).filter(BookCRUD.has_metadata == True).count()
+            db.query(Book).filter(BookCRUD.has_metadata == True).count()
         )
         books_without_metadata = total_books - books_with_metadata
 
         # Compter par extension
         cbz_count = (
-            db.query(BookCRUD).filter(BookCRUD.extension == ".cbz").count()
+            db.query(Book).filter(BookCRUD.extension == ".cbz").count()
         )
         cbr_count = (
-            db.query(BookCRUD).filter(BookCRUD.extension == ".cbr").count()
+            db.query(Book).filter(BookCRUD.extension == ".cbr").count()
         )
         pdf_count = (
-            db.query(BookCRUD).filter(BookCRUD.extension == ".pdf").count()
+            db.query(Book).filter(BookCRUD.extension == ".pdf").count()
         )
         other_count = total_books - cbz_count - cbr_count - pdf_count
 
