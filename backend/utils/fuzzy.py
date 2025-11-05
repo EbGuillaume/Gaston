@@ -153,6 +153,37 @@ class FuzzyMatcher:
         return similar
 
     @staticmethod
+    def clean_tags(filename: str) -> str:
+        """
+        Retire les tags entre crochets et parenthèses du nom de fichier.
+
+        Exemples:
+            "[Comics.fr] Y le dernier homme - 01 [Vaughan]" → "Y le dernier homme - 01"
+            "Asterix T41 [CBZ] Fr" → "Asterix T41 Fr"
+
+        Args:
+            filename: Nom de fichier à nettoyer
+
+        Returns:
+            Nom de fichier sans tags
+        """
+        # Retirer les tags entre crochets au début (ex: [Comics.fr], [CBZ])
+        cleaned = re.sub(r'^\[.*?\]\s*', '', filename)
+
+        # Retirer les tags entre crochets/parenthèses contenant des auteurs ou infos
+        # (généralement en fin de nom après le numéro)
+        # Ex: "[Vaughan-Guerra]", "(Uderzo)"
+        cleaned = re.sub(r'\s*[\[\(][^\]\)]*?[\]\)]\s*', ' ', cleaned)
+
+        # Retirer les tags de langue/format en fin (ex: "Fr", "EN", "FRENCH")
+        cleaned = re.sub(r'\s+(fr|en|us|uk|french|english|vf|vo)\s*$', '', cleaned, flags=re.IGNORECASE)
+
+        # Enlever les espaces multiples
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+
+        return cleaned.strip()
+
+    @staticmethod
     def extract_series_and_number(filename: str) -> Tuple[str, int]:
         """
         Extrait le nom de série et le numéro d'un nom de fichier.
@@ -163,17 +194,19 @@ class FuzzyMatcher:
         Returns:
             Tuple (nom de série, numéro) ou (filename, 0) si non trouvé
         """
+        # Nettoyer les tags d'abord
+        cleaned = FuzzyMatcher.clean_tags(filename)
+
         # Patterns courants pour les numéros
         patterns = [
-            r"(.+?)\s+(\d+)",  # "Asterix 01"
-            r"(.+?)\s+[Tt](?:ome)?\.?\s*(\d+)",  # "Asterix Tome 01"
+            r"(.+?)\s+[Tt](?:ome)?\.?\s*(\d+)",  # "Asterix Tome 01" ou "Asterix T01"
             r"(.+?)\s+[Vv](?:ol)?\.?\s*(\d+)",  # "Asterix Vol 01"
             r"(.+?)\s+#(\d+)",  # "Asterix #01"
-            r"(.+?)\s+\[(\d+)\]",  # "Asterix [01]"
-            r"(.+?)\s+\((\d+)\)",  # "Asterix (01)"
+            r"(.+?)\s+-\s+(\d+)",  # "Y le dernier homme - 01"
+            r"(.+?)\s+(\d+)",  # "Asterix 01" (doit être en dernier, moins spécifique)
         ]
 
-        normalized = FuzzyMatcher.normalize_filename(filename)
+        normalized = FuzzyMatcher.normalize_filename(cleaned)
 
         for pattern in patterns:
             match = re.search(pattern, normalized)

@@ -1,4 +1,5 @@
 """Caching system for scraper results."""
+import copy
 import hashlib
 import json
 import pickle
@@ -86,10 +87,12 @@ class ScraperCache:
                         cache_path.unlink()
                         return None
 
-            # Reconstruire les MetadataResult
+            # Reconstruire les MetadataResult avec copie profonde
             results = []
             for result_dict in cache_data.get("results", []):
-                result = MetadataResult(**result_dict)
+                # Copie profonde du dict pour éviter les modifications des objets mutables
+                result_dict_copy = copy.deepcopy(result_dict)
+                result = MetadataResult(**result_dict_copy)
                 results.append(result)
 
             logger.info(f"Cache hit for {source}:{query} ({len(results)} results)")

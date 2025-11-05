@@ -60,7 +60,7 @@ async def search_metadata(request: SearchRequest):
     """
     logger.info(f"Searching metadata for: {request.query}")
 
-    matcher = NameMatcher(use_cache=True)
+    matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
 
     try:
         results = await matcher.match(request.query)
@@ -120,7 +120,7 @@ async def match_book_metadata(
         raise HTTPException(status_code=404, detail="Book not found")
 
     # Matcher
-    matcher = NameMatcher(use_cache=True)
+    matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
 
     try:
         # Chercher les correspondances
@@ -221,7 +221,7 @@ async def batch_match_metadata(
         "errors": 0,
     }
 
-    matcher = NameMatcher(use_cache=True)
+    matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
 
     try:
         for book_id in book_ids:
@@ -306,3 +306,140 @@ async def cleanup_cache():
     cache.cleanup_expired()
 
     return {"status": "success", "message": "Expired cache entries removed"}
+
+
+class ManualMetadataRequest(BaseModel):
+    """Request to manually add/update metadata."""
+
+    book_id: int
+    series_name: str
+    volume_number: Optional[int] = None
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    writers: List[str] = []
+    pencillers: List[str] = []
+    inkers: List[str] = []
+    colorists: List[str] = []
+    publisher: Optional[str] = None
+    publication_date: Optional[str] = None
+    isbn: Optional[str] = None
+    page_count: Optional[int] = None
+    genres: List[str] = []
+    tags: List[str] = []
+
+
+@router.post("/manual")
+async def add_manual_metadata(request: ManualMetadataRequest, db: Session = Depends(get_db)):
+    """
+    Manually add or update metadata for a book.
+
+    Args:
+        request: Manual metadata request
+        db: Database session
+
+    Returns:
+        Created/updated metadata
+    """
+    logger.info(f"Adding manual metadata for book {request.book_id}")
+
+    # Vérifier que le livre existe
+    book = BookCRUD.get(db, request.book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    # Vérifier si des métadonnées existent déjà
+    existing_metadata = MetadataCRUD.get_by_book(db, request.book_id)
+
+    metadata_data = {
+        "book_id": request.book_id,
+        "source": "manual",
+        "confidence_score": 1.0,  # Manuel = confiance maximale
+        "series_name": request.series_name,
+        "volume_number": request.volume_number,
+        "title": request.title,
+        "summary": request.summary,
+        "writers": ",".join(request.writers) if request.writers else None,
+        "pencillers": ",".join(request.pencillers) if request.pencillers else None,
+        "inkers": ",".join(request.inkers) if request.inkers else None,
+        "colorists": ",".join(request.colorists) if request.colorists else None,
+        "publisher": request.publisher,
+        "publication_date": request.publication_date,
+        "isbn": request.isbn,
+        "page_count": request.page_count,
+        "genres": ",".join(request.genres) if request.genres else None,
+        "tags": ",".join(request.tags) if request.tags else None,
+    }
+
+    if existing_metadata:
+        # Mettre à jour
+        metadata = MetadataCRUD.update(db, existing_metadata.id, **metadata_data)
+        logger.info(f"Updated metadata {metadata.id} for book {request.book_id}")
+        action = "updated"
+    else:
+        # Créer
+        metadata = MetadataCRUD.create(db, **metadata_data)
+        logger.info(f"Created metadata {metadata.id} for book {request.book_id}")
+        action = "created"
+
+    # Marquer le livre comme ayant des métadonnées
+    BookCRUD.update(db, request.book_id, has_metadata=True)
+
+    return {
+        "status": "success",
+        "action": action,
+        "metadata_id": metadata.id,
+        "message": f"Metadata {action} successfully",
+    }
+
+
+@router.get("/book/{book_id}")
+async def get_book_metadata(book_id: int, db: Session = Depends(get_db)):
+    """
+    Get metadata for a specific book.
+
+    Args:
+        book_id: Book ID
+        db: Database session
+
+    Returns:
+        Metadata if exists
+    """
+    # Vérifier que le livre existe
+    book = BookCRUD.get(db, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    # Récupérer les métadonnées
+    metadata = MetadataCRUD.get_by_book(db, book_id)
+
+    if not metadata:
+        return {
+            "status": "no_metadata",
+            "message": "No metadata found for this book",
+            "book_id": book_id,
+            "filename": book.filename,
+        }
+
+    return {
+        "status": "success",
+        "metadata": {
+            "id": metadata.id,
+            "source": metadata.source,
+            "confidence_score": metadata.confidence_score,
+            "series_name": metadata.series_name,
+            "volume_number": metadata.volume_number,
+            "title": metadata.title,
+            "summary": metadata.summary,
+            "writers": metadata.writers.split(",") if metadata.writers else [],
+            "pencillers": metadata.pencillers.split(",") if metadata.pencillers else [],
+            "inkers": metadata.inkers.split(",") if metadata.inkers else [],
+            "colorists": metadata.colorists.split(",") if metadata.colorists else [],
+            "publisher": metadata.publisher,
+            "publication_date": metadata.publication_date,
+            "isbn": metadata.isbn,
+            "page_count": metadata.page_count,
+            "genres": metadata.genres.split(",") if metadata.genres else [],
+            "tags": metadata.tags.split(",") if metadata.tags else [],
+            "cover_url": metadata.cover_url,
+        },
+    }

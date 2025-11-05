@@ -5,6 +5,7 @@ from loguru import logger
 
 from backend.scrapers.base import BaseScraper, MetadataResult
 from backend.scrapers.bedetheque import BedethequeScraper
+from backend.scrapers.bdphile import BDPhileScraper
 from backend.scrapers.cache import ScraperCache
 from backend.utils.fuzzy import FuzzyMatcher
 
@@ -15,7 +16,7 @@ class NameMatcher:
     def __init__(
         self,
         scrapers: Optional[List[BaseScraper]] = None,
-        use_cache: bool = True,
+        use_cache: bool = False,  # TEMPORAIRE: Désactivé pour debug
         min_confidence: float = 0.70,
     ):
         """
@@ -30,9 +31,10 @@ class NameMatcher:
         self.cache = ScraperCache() if use_cache else None
         self.min_confidence = min_confidence
 
-        # Si aucun scraper fourni, créer Bedetheque par défaut
+        # Si aucun scraper fourni, créer BDPhile par défaut (Bedetheque est désactivé)
         if not self.scrapers:
-            self.scrapers.append(BedethequeScraper())
+            self.scrapers.append(BDPhileScraper(enabled=True))
+            # self.scrapers.append(BedethequeScraper(enabled=False))  # Désactivé: protection anti-scraping
 
         # Trier par priorité
         self.scrapers.sort(key=lambda s: s.priority)
@@ -88,6 +90,19 @@ class NameMatcher:
                 except Exception as e:
                     logger.error(f"Error searching with {scraper.name}: {e}")
                     continue
+
+            # Enrichir les résultats avec les détails complets des albums si possible
+            if volume_number is not None and hasattr(scraper, 'enrich_with_album_details'):
+                enriched_results = []
+                for result in results:
+                    try:
+                        enriched = await scraper.enrich_with_album_details(result, volume_number)
+                        enriched_results.append(enriched)
+                    except Exception as e:
+                        logger.warning(f"Error enriching result for {result.series_name}: {e}")
+                        # Garder le résultat non enrichi en cas d'erreur
+                        enriched_results.append(result)
+                results = enriched_results
 
             # Filtrer par numéro de volume si connu
             if volume_number is not None:

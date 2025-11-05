@@ -95,7 +95,7 @@ class Metadata(Base):
     book_id = Column(Integer, ForeignKey("books.id", ondelete="CASCADE"), unique=True)
     source = Column(
         String,
-        CheckConstraint("source IN ('bedetheque', 'comicvine', 'manual', 'embedded')"),
+        CheckConstraint("source IN ('bdphile', 'bedetheque', 'comicvine', 'manual', 'embedded')"),
     )
     confidence_score = Column(Float)
 
@@ -134,7 +134,7 @@ class Metadata(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relations
-    book = relationship("Book", back_populates="metadata")
+    book = relationship("Book", back_populates="book_metadata")
 
 
 class Duplicate(Base):
