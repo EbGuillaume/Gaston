@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import gaston_config
 from backend.database.crud import BookCRUD, DuplicateCRUD
-from backend.database.models import Book
+from backend.database.models import Book, Duplicate
 from backend.utils.archive import ArchiveHandler
 from backend.utils.fuzzy import FuzzyMatcher
 from backend.utils.hash import HashCalculator
@@ -255,15 +255,15 @@ class Deduplicator:
         for book1, book2 in duplicates:
             # Vérifier si le doublon existe déjà
             existing = (
-                self.db.query(DuplicateCRUD)
+                self.db.query(Duplicate)
                 .filter(
                     (
-                        (DuplicateCRUD.book_id_1 == book1.id)
-                        & (DuplicateCRUD.book_id_2 == book2.id)
+                        (Duplicate.book_id_1 == book1.id)
+                        & (Duplicate.book_id_2 == book2.id)
                     )
                     | (
-                        (DuplicateCRUD.book_id_1 == book2.id)
-                        & (DuplicateCRUD.book_id_2 == book1.id)
+                        (Duplicate.book_id_1 == book2.id)
+                        & (Duplicate.book_id_2 == book1.id)
                     )
                 )
                 .first()

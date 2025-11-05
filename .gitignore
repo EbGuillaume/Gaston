@@ -102,3 +102,10 @@ tests/fixtures/sample_files/*.epub
 # Cache
 .cache/
 *.pyc
+
+# Fichiers de test et exemples
+bd_sample/
+*.db.backup.*
+
+# Cache scraper
+backend/.scraper_cache.sqlite

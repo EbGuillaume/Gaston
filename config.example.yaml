@@ -30,12 +30,15 @@ gaston:
   # Métadonnées
   metadata:
     sources:
-      - name: bedetheque
-        enabled: true
+      - name: bdphile
+        enabled: true  # ✅ Recommandé: 43k séries, recherche directe, pas de blocage
         priority: 1
-      - name: comicvine
-        enabled: true
+      - name: bedetheque
+        enabled: false  # Désactivé: protection anti-scraping, pas d'API publique (voir docs/SCRAPING_STATUS.md)
         priority: 2
+      - name: comicvine
+        enabled: false  # À implémenter: nécessite une clé API gratuite
+        priority: 3
 
     auto_fetch: true
     auto_validate_threshold: 0.90
