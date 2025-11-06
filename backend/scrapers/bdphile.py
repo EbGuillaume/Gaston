@@ -388,7 +388,9 @@ class BDPhileScraper(BaseScraper):
             logger.debug(f"Fetching album details from: {url}")
             html = await self._fetch(url)
 
-            if html and "404" not in html and "Page non trouvée" not in html:
+            # Si on a récupéré du HTML, c'est bon (raise_for_status a déjà vérifié le code HTTP)
+            # On vérifie juste que ce n'est pas une vraie page d'erreur
+            if html and "<title>404" not in html and "Page non trouvée" not in html:
                 break
         else:
             logger.warning(f"Could not fetch album {album_id} (tried bd and comics)")
