@@ -7,7 +7,7 @@ from loguru import logger
 
 from backend.config import gaston_config, settings
 from backend.database.session import init_db
-from backend.api.routes import duplicates, metadata, scanner, organizer, database
+from backend.api.routes import books, duplicates, metadata, scanner, organizer, database
 
 # Création de l'application FastAPI
 app = FastAPI(
@@ -28,6 +28,7 @@ if gaston_config.web.enable_cors:
     )
 
 # Include routers
+app.include_router(books.router)
 app.include_router(scanner.router)
 app.include_router(duplicates.router)
 app.include_router(metadata.router)
