@@ -18,10 +18,17 @@
           />
         </div>
 
-        <button type="submit" class="btn btn-primary" :disabled="loading">
-          {{ loading ? 'Scan en cours...' : 'Scanner' }}
+        <button type="submit" class="btn btn-primary" :disabled="loading || scanning">
+          {{ scanning ? 'Scan en cours...' : 'Scanner' }}
         </button>
       </form>
+
+      <div v-if="scanning && scanProgress.total > 0" class="progress-info">
+        <p>
+          <strong>{{ scanProgress.current }}/{{ scanProgress.total }}</strong> fichiers scannés
+        </p>
+        <p class="current-file">{{ scanProgress.filename }}</p>
+      </div>
 
       <div v-if="scanResult" class="success">
         ✓ Scan terminé: {{ scanResult.total_files }} fichiers trouvés,
@@ -77,6 +84,8 @@ const { loading, error } = storeToRefs(libraryStore)
 
 const scanPath = ref('')
 const scanResult = ref(null)
+const scanning = ref(false)
+const scanProgress = ref({ current: 0, total: 0, filename: '' })
 
 // Enrichissement
 const enriching = ref(false)
@@ -86,10 +95,31 @@ const enrichResult = ref(null)
 async function handleScan() {
   try {
     scanResult.value = null
-    const result = await libraryStore.scanDirectory(scanPath.value)
-    scanResult.value = result
+    scanning.value = true
+    scanProgress.value = { current: 0, total: 0, filename: '' }
+
+    libraryStore.scanDirectoryStream(scanPath.value, {
+      onStatus: (message) => {
+        console.log('Status:', message)
+      },
+      onFound: (total) => {
+        scanProgress.value.total = total
+      },
+      onProgress: (current, total, filename) => {
+        scanProgress.value = { current, total, filename }
+      },
+      onComplete: (result) => {
+        scanResult.value = result
+        scanning.value = false
+      },
+      onError: (message) => {
+        libraryStore.error = message
+        scanning.value = false
+      }
+    })
   } catch (e) {
     console.error('Scan failed:', e)
+    scanning.value = false
   }
 }
 
@@ -204,5 +234,26 @@ function formatSize(bytes) {
 
 .format-count {
   color: #666;
+}
+
+.progress-info {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #e3f2fd;
+  border-radius: 4px;
+  border-left: 4px solid var(--primary-color);
+}
+
+.progress-info p {
+  margin: 0.5rem 0;
+}
+
+.current-file {
+  font-family: monospace;
+  color: #555;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
