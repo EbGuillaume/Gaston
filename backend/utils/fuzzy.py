@@ -1,6 +1,6 @@
 """Fuzzy string matching utilities for duplicate detection."""
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from rapidfuzz import fuzz, process
 from loguru import logger
@@ -184,12 +184,14 @@ class FuzzyMatcher:
         return cleaned.strip()
 
     @staticmethod
-    def extract_series_and_number(filename: str) -> Tuple[str, int]:
+    def extract_series_and_number(filename: str, full_path: Optional[str] = None) -> Tuple[str, int]:
         """
         Extrait le nom de série et le numéro d'un nom de fichier.
 
         Args:
             filename: Nom de fichier
+            full_path: Chemin complet du fichier (optionnel). Si fourni et que le nom
+                      de série extrait est générique, utilise le nom du dossier parent.
 
         Returns:
             Tuple (nom de série, numéro) ou (filename, 0) si non trouvé
@@ -208,15 +210,30 @@ class FuzzyMatcher:
 
         normalized = FuzzyMatcher.normalize_filename(cleaned)
 
+        series_name = None
+        number = 0
+
         for pattern in patterns:
             match = re.search(pattern, normalized)
             if match:
                 series_name = match.group(1).strip()
                 number = int(match.group(2))
-                return (series_name, number)
+                break
 
-        # Aucun pattern trouvé
-        return (normalized, 0)
+        # Si le nom de série est générique ou vide, utiliser le dossier parent
+        generic_names = {"tome", "vol", "volume", "chapter", "chapitre", "ch", "t", "v"}
+        if full_path and (not series_name or series_name.lower() in generic_names):
+            import os
+            parent_folder = os.path.basename(os.path.dirname(full_path))
+            if parent_folder:
+                series_name = parent_folder
+                logger.debug(f"Using parent folder name as series: {series_name}")
+
+        # Si toujours pas de nom de série, utiliser le filename normalisé
+        if not series_name:
+            series_name = normalized
+
+        return (series_name, number)
 
     @staticmethod
     def group_similar_files(filenames: List[str], threshold: float = 0.85) -> List[List[str]]:

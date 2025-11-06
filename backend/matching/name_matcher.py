@@ -40,7 +40,7 @@ class NameMatcher:
         self.scrapers.sort(key=lambda s: s.priority)
 
     async def match(
-        self, filename: str, prefer_series: Optional[str] = None
+        self, filename: str, prefer_series: Optional[str] = None, full_path: Optional[str] = None
     ) -> List[MetadataResult]:
         """
         Match a filename to metadata.
@@ -48,14 +48,16 @@ class NameMatcher:
         Args:
             filename: Filename to match
             prefer_series: If provided, boost results matching this series
+            full_path: Full path of the file (optional). Used to extract series name
+                      from parent folder if filename is generic (e.g., "Tome 01.pdf")
 
         Returns:
             List of metadata results sorted by confidence
         """
         logger.info(f"Matching filename: {filename}")
 
-        # Extraire série et numéro du nom de fichier
-        series_name, volume_number = FuzzyMatcher.extract_series_and_number(filename)
+        # Extraire série et numéro du nom de fichier (avec dossier parent si fourni)
+        series_name, volume_number = FuzzyMatcher.extract_series_and_number(filename, full_path)
 
         logger.debug(
             f"Extracted: series='{series_name}', volume={volume_number}"

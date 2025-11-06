@@ -134,8 +134,8 @@ async def match_book_metadata(
     matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
 
     try:
-        # Chercher les correspondances
-        matches = await matcher.match(book.filename)
+        # Chercher les correspondances (avec le chemin complet pour détecter le dossier parent)
+        matches = await matcher.match(book.filename, full_path=book.original_path)
 
         if not matches:
             return {
@@ -242,7 +242,7 @@ async def batch_match_metadata(
                     results["errors"] += 1
                     continue
 
-                matches = await matcher.match(book.filename)
+                matches = await matcher.match(book.filename, full_path=book.original_path)
 
                 if not matches:
                     results["no_match"] += 1
