@@ -137,7 +137,7 @@ async function loadBooks() {
       params.append('search', searchQuery.value)
     }
 
-    const response = await fetch(`/api/books?${params}`)
+    const response = await fetch(`/api/books/?${params}`)
     if (!response.ok) throw new Error('Failed to fetch books')
 
     const data = await response.json()
