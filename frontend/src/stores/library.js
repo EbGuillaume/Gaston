@@ -101,6 +101,39 @@ export const useLibraryStore = defineStore('library', () => {
     return eventSource
   }
 
+  function enrichAllStream(callbacks) {
+    const eventSource = new EventSource('/api/metadata/enrich-all-stream?auto_validate_threshold=0.80&batch_size=10')
+
+    eventSource.addEventListener('message', (event) => {
+      const data = JSON.parse(event.data)
+
+      switch (data.type) {
+        case 'found':
+          callbacks.onFound?.(data.total)
+          break
+        case 'progress':
+          callbacks.onProgress?.(data.current, data.total, data.filename)
+          break
+        case 'complete':
+          callbacks.onComplete?.(data)
+          eventSource.close()
+          break
+        case 'error':
+          callbacks.onError?.(data.message)
+          eventSource.close()
+          break
+      }
+    })
+
+    eventSource.onerror = (err) => {
+      console.error('EventSource error:', err)
+      callbacks.onError?.('Connection lost')
+      eventSource.close()
+    }
+
+    return eventSource
+  }
+
   return {
     // State
     books,
@@ -114,6 +147,7 @@ export const useLibraryStore = defineStore('library', () => {
     fetchStats,
     fetchBooks,
     scanDirectory,
-    scanDirectoryStream
+    scanDirectoryStream,
+    enrichAllStream
   }
 })

@@ -124,52 +124,32 @@ async function handleScan() {
 }
 
 async function handleEnrichAll() {
-  enriching.value = true
-  enrichProgress.value = 0
-  enrichResult.value = null
-
   try {
-    // Récupérer le nombre total de livres
-    const statsResponse = await fetch('/api/organize/stats')
-    const stats = await statsResponse.json()
-    const totalBooks = stats.total_books
+    enriching.value = true
+    enrichProgress.value = 0
+    enrichResult.value = null
 
-    if (totalBooks === 0) {
-      alert('Aucun livre à enrichir. Scannez d\'abord un dossier!')
-      return
-    }
-
-    let success = 0
-    let failed = 0
-
-    // Enrichir chaque livre (avec threshold plus bas pour enrichissement automatique)
-    for (let id = 1; id <= totalBooks; id++) {
-      try {
-        const response = await fetch(`/api/metadata/match/${id}?auto_validate_threshold=0.80`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        })
-
-        const result = await response.json()
-
-        if (response.ok && result.status === 'success') {
-          success++
-        } else {
-          failed++
+    libraryStore.enrichAllStream({
+      onFound: (total) => {
+        console.log(`Found ${total} books to enrich`)
+      },
+      onProgress: (current, total, filename) => {
+        enrichProgress.value = Math.round((current / total) * 100)
+      },
+      onComplete: (result) => {
+        enrichResult.value = {
+          success: result.success,
+          failed: result.failed + result.skipped
         }
-      } catch (e) {
-        failed++
+        enriching.value = false
+      },
+      onError: (message) => {
+        libraryStore.error = message
+        enriching.value = false
       }
-
-      // Mettre à jour la progression
-      enrichProgress.value = Math.round((id / totalBooks) * 100)
-    }
-
-    enrichResult.value = { success, failed }
-
+    })
   } catch (e) {
-    error.value = e.message
-  } finally {
+    console.error('Enrich failed:', e)
     enriching.value = false
   }
 }
