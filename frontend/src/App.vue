@@ -11,6 +11,7 @@
         <router-link to="/library">Bibliothèque</router-link>
         <router-link to="/duplicates">Doublons</router-link>
         <router-link to="/metadata">Métadonnées</router-link>
+        <router-link to="/organize">Organisation</router-link>
       </div>
     </nav>
 

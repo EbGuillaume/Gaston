@@ -4,6 +4,7 @@ import Scanner from '../views/Scanner.vue'
 import Library from '../views/Library.vue'
 import Duplicates from '../views/Duplicates.vue'
 import Metadata from '../views/Metadata.vue'
+import Organization from '../views/Organization.vue'
 
 const routes = [
   {
@@ -30,6 +31,11 @@ const routes = [
     path: '/metadata',
     name: 'Metadata',
     component: Metadata
+  },
+  {
+    path: '/organize',
+    name: 'Organization',
+    component: Organization
   }
 ]
 
