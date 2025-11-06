@@ -97,6 +97,8 @@ async def preview_organization(request: PreviewRequest, db: Session = Depends(ge
                 "title": metadata.title,
                 "extension": book.extension,
                 "publisher": metadata.publisher,
+                "genres": metadata.genres,
+                "tags": metadata.tags,
             }
 
             target_path = organizer.get_target_path_from_metadata(metadata_dict)
@@ -214,6 +216,8 @@ async def organize_library(request: OrganizeRequest, db: Session = Depends(get_d
                     "title": metadata.title,
                     "extension": book.extension,
                     "publisher": metadata.publisher,
+                    "genres": metadata.genres,
+                    "tags": metadata.tags,
                 }
                 target_path = organizer.get_target_path_from_metadata(
                     target_path_metadata

@@ -30,6 +30,24 @@ class KomgaOrganizer:
         self.create_integrales = gaston_config.organization.create_integrales_folder
         self.separate_by_publisher = gaston_config.organization.separate_by_publisher
 
+        # Éditeurs par type
+        self.bd_publishers = {
+            "dupuis", "dargaud", "lombard", "glénat", "glenat", "delcourt",
+            "soleil", "casterman", "bamboo", "vents d'ouest", "vents d ouest",
+            "futuropolis", "paquet", "ankama", "drakoo", "jungle", "kstr",
+            "le lombard", "éditions dupuis", "editions dupuis", "hachette",
+            "albert rené", "albert rene", "les éditions albert rené"
+        }
+        self.comics_publishers = {
+            "marvel", "dc comics", "dc", "image", "dark horse", "idw",
+            "vertigo", "dynamite", "boom", "valiant", "urban comics", "panini",
+            "semic", "lug", "sag"
+        }
+        self.manga_publishers = {
+            "kana", "pika", "glénat manga", "glenat manga", "kurokawa",
+            "ki-oon", "tonkam", "delcourt tonkam", "kazé", "kaze", "akata"
+        }
+
     def generate_filename(
         self,
         series_name: str,
@@ -82,6 +100,7 @@ class KomgaOrganizer:
         series_name: str,
         publisher: Optional[str] = None,
         is_oneshot: bool = False,
+        content_type: Optional[str] = None,
     ) -> Path:
         """
         Generate directory path according to Komga structure.
@@ -90,11 +109,16 @@ class KomgaOrganizer:
             series_name: Series name
             publisher: Publisher name (if separate_by_publisher is True)
             is_oneshot: Is this a one-shot?
+            content_type: Content type (BD, Comics, Manga, Livres, _uncategorized)
 
         Returns:
             Full directory path
         """
         base_path = self.output_path
+
+        # Ajouter le type de contenu au début de la hiérarchie
+        if content_type:
+            base_path = base_path / content_type
 
         # Séparation par éditeur si configuré
         if self.separate_by_publisher and publisher:
@@ -119,6 +143,7 @@ class KomgaOrganizer:
         is_oneshot: bool = False,
         is_integrale: bool = False,
         integrale_range: Optional[str] = None,
+        content_type: Optional[str] = None,
     ) -> Path:
         """
         Generate complete file path (directory + filename).
@@ -132,6 +157,7 @@ class KomgaOrganizer:
             is_oneshot: Is this a one-shot?
             is_integrale: Is this an integrale?
             integrale_range: Range for integrale
+            content_type: Content type (BD, Comics, Manga, Livres, _uncategorized)
 
         Returns:
             Complete file path
@@ -140,6 +166,7 @@ class KomgaOrganizer:
             series_name=series_name,
             publisher=publisher,
             is_oneshot=is_oneshot,
+            content_type=content_type,
         )
 
         filename = self.generate_filename(
@@ -236,6 +263,64 @@ class KomgaOrganizer:
         # Intégrale sans plage explicite
         return True, None
 
+    def detect_content_type(
+        self,
+        publisher: Optional[str] = None,
+        genres: Optional[str] = None,
+        tags: Optional[str] = None,
+        series_name: Optional[str] = None,
+    ) -> str:
+        """
+        Detect content type (BD, Comics, Manga, Livres, _uncategorized).
+
+        Args:
+            publisher: Publisher name
+            genres: Genres string (comma-separated)
+            tags: Tags string (comma-separated)
+            series_name: Series name
+
+        Returns:
+            Content type: BD, Comics, Manga, Livres, or _uncategorized
+        """
+        # Normaliser les textes pour la comparaison
+        publisher_lower = publisher.lower() if publisher else ""
+        genres_lower = genres.lower() if genres else ""
+        tags_lower = tags.lower() if tags else ""
+        series_lower = series_name.lower() if series_name else ""
+
+        # Vérifier l'éditeur d'abord (plus fiable)
+        if publisher:
+            if any(pub in publisher_lower for pub in self.bd_publishers):
+                return "BD"
+            if any(pub in publisher_lower for pub in self.comics_publishers):
+                return "Comics"
+            if any(pub in publisher_lower for pub in self.manga_publishers):
+                return "Manga"
+
+        # Vérifier les genres et tags
+        combined_text = f"{genres_lower} {tags_lower}".lower()
+
+        # Mots-clés manga
+        manga_keywords = ["manga", "shōnen", "shonen", "seinen", "shōjo", "shojo", "josei"]
+        if any(keyword in combined_text for keyword in manga_keywords):
+            return "Manga"
+
+        # Mots-clés comics
+        comics_keywords = ["superhero", "super-héros", "marvel", "dc comics", "comics"]
+        if any(keyword in combined_text for keyword in comics_keywords):
+            return "Comics"
+
+        # Mots-clés BD franco-belge
+        bd_keywords = ["bande dessinée", "bd", "franco-belge", "franco belge"]
+        if any(keyword in combined_text for keyword in bd_keywords):
+            return "BD"
+
+        # Vérifier l'extension pour détecter les livres
+        # (sera fait au niveau de l'appelant si nécessaire)
+
+        # Par défaut: uncategorized
+        return "_uncategorized"
+
     @staticmethod
     def _sanitize_filename(name: str) -> str:
         """
@@ -295,10 +380,20 @@ class KomgaOrganizer:
         title = metadata.get("title")
         extension = metadata.get("extension", ".cbz")
         publisher = metadata.get("publisher")
+        genres = metadata.get("genres")
+        tags = metadata.get("tags")
 
         # Détecter one-shot et intégrale
         is_oneshot = self.detect_oneshot(volume_number, title)
         is_integrale, integrale_range = self.detect_integrale(title, volume_number)
+
+        # Détecter le type de contenu
+        content_type = self.detect_content_type(
+            publisher=publisher,
+            genres=genres,
+            tags=tags,
+            series_name=series_name,
+        )
 
         return self.generate_full_path(
             series_name=series_name,
@@ -309,4 +404,5 @@ class KomgaOrganizer:
             is_oneshot=is_oneshot,
             is_integrale=is_integrale,
             integrale_range=integrale_range,
+            content_type=content_type,
         )
