@@ -39,8 +39,8 @@
         {{ enriching ? `Enrichissement ${enrichProgress}%...` : '✨ Enrichir tous les livres' }}
       </button>
 
-      <div v-if="enrichResult" class="success">
-        ✓ Enrichissement terminé: {{ enrichResult.success }} succès, {{ enrichResult.failed }} échecs
+      <div v-if="enrichResult" :class="enrichResult.success > 0 ? 'success' : 'error'">
+        {{ enrichResult.success > 0 ? '✓' : '✗' }} Enrichissement terminé: {{ enrichResult.success }} succès, {{ enrichResult.failed }} échecs
       </div>
     </div>
 
