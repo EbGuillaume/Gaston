@@ -202,20 +202,55 @@ class BDPhileScraper(BaseScraper):
 
                 album_title = link.get_text(strip=True)
 
-                # Extraire l'ID et le numéro depuis l'URL
+                # Extraire l'ID depuis l'URL
                 # Format BD: /album/bd/163670-asterix-2-la-serpe-d-or
-                # Format Comics: /album/comics/62942-y-le-dernier-homme-2-un-petit-coin-de-paradis
-                match = re.search(r"/album/(?:bd|comics)/(\d+)-.*?-(\d+)-", album_url)
-                if match:
-                    album_id = int(match.group(1))
-                    volume_number = int(match.group(2))
-                else:
-                    # Essayer sans numéro de tome
-                    match = re.search(r"/album/(?:bd|comics)/(\d+)-", album_url)
-                    if not match:
-                        continue
-                    album_id = int(match.group(1))
-                    volume_number = None
+                # Format Comics: /album/comics/133975-y-le-dernier-homme-1-no-man-s-land
+                match_id = re.search(r"/album/(?:bd|comics)/(\d+)", album_url)
+                if not match_id:
+                    logger.debug(f"Could not extract album ID from URL: {album_url}")
+                    continue
+
+                album_id = int(match_id.group(1))
+
+                # Extraire le numéro de tome depuis l'URL
+                # Plusieurs patterns possibles:
+                # - asterix-2-la-serpe-d-or (chiffre seul après le nom de série)
+                # - y-le-dernier-homme-1-no-man-s-land (chiffre avant le titre)
+                # - deadpool-tome-5-deadpool-vs-thanos (avec "tome")
+                volume_number = None
+
+                # Essayer de trouver un pattern comme "-NUMERO-" ou "-tome-NUMERO-"
+                patterns = [
+                    r"-(\d+)-[a-z]",  # -1-no (chiffre suivi d'un tiret et d'une lettre)
+                    r"-tome-(\d+)",   # -tome-5
+                    r"-t(\d+)-",      # -t5-
+                    r"-vol-(\d+)",    # -vol-3
+                    r"-volume-(\d+)", # -volume-2
+                ]
+
+                for pattern in patterns:
+                    match_vol = re.search(pattern, album_url, re.I)
+                    if match_vol:
+                        volume_number = int(match_vol.group(1))
+                        logger.debug(f"Found volume {volume_number} in URL using pattern: {pattern}")
+                        break
+
+                # Si toujours pas trouvé, essayer d'extraire depuis le titre du lien
+                if volume_number is None:
+                    # Chercher "Tome X", "T.X", "#X", "Volume X" dans le titre
+                    title_patterns = [
+                        r"(?:tome|t\.?)\s*(\d+)",
+                        r"#(\d+)",
+                        r"volume\s*(\d+)",
+                        r"^(\d+)\s*[-:]",  # Commence par un nombre
+                    ]
+
+                    for pattern in title_patterns:
+                        match_title = re.search(pattern, album_title, re.I)
+                        if match_title:
+                            volume_number = int(match_title.group(1))
+                            logger.debug(f"Found volume {volume_number} in title '{album_title}'")
+                            break
 
                 albums.append({
                     "id": album_id,
@@ -223,6 +258,11 @@ class BDPhileScraper(BaseScraper):
                     "volume_number": volume_number,
                     "url": album_url,
                 })
+
+                logger.debug(
+                    f"Parsed album: id={album_id}, vol={volume_number}, "
+                    f"title='{album_title[:50]}...', url={album_url}"
+                )
 
             except Exception as e:
                 logger.debug(f"Error parsing album link: {e}")
@@ -277,17 +317,24 @@ class BDPhileScraper(BaseScraper):
                 break
 
         if not matching_album:
+            # Afficher la liste des albums disponibles pour debug
+            available_volumes = [
+                a.get("volume_number") for a in series_details["albums"]
+                if a.get("volume_number") is not None
+            ]
             logger.warning(
                 f"Album tome {vol_num} not found in series {series_id} "
-                f"({len(series_details['albums'])} albums)"
+                f"({len(series_details['albums'])} albums). "
+                f"Available volumes: {sorted(set(available_volumes))}"
             )
             return result
 
         # Récupérer les détails complets de l'album
         album_id = matching_album["id"]
-        logger.info(f"Fetching details for album {album_id}")
+        album_type = result.raw_data.get("series_type", "bd")
+        logger.info(f"Fetching details for album {album_id} (type: {album_type})")
 
-        album_result = await self.get_album_details(album_id)
+        album_result = await self.get_album_details(album_id, album_type)
 
         if album_result:
             # Préserver la confidence du résultat original
@@ -323,20 +370,28 @@ class BDPhileScraper(BaseScraper):
             logger.error(f"Invalid album ID: {item_id} - {e}")
             return None
 
-    async def get_album_details(self, album_id: int) -> Optional[MetadataResult]:
+    async def get_album_details(self, album_id: int, album_type: str = "bd") -> Optional[MetadataResult]:
         """
         Get detailed information about an album.
 
         Args:
             album_id: BDPhile album ID
+            album_type: Type of album ("bd" or "comics")
 
         Returns:
             MetadataResult with complete album information
         """
-        url = f"{self.BASE_URL}/album/bd/{album_id}"
+        # Essayer d'abord avec le type spécifié, puis l'autre si ça échoue
+        for try_type in [album_type, "comics" if album_type == "bd" else "bd"]:
+            url = f"{self.BASE_URL}/album/{try_type}/{album_id}"
 
-        html = await self._fetch(url)
-        if not html:
+            logger.debug(f"Fetching album details from: {url}")
+            html = await self._fetch(url)
+
+            if html and "404" not in html and "Page non trouvée" not in html:
+                break
+        else:
+            logger.warning(f"Could not fetch album {album_id} (tried bd and comics)")
             return None
 
         soup = BeautifulSoup(html, "html.parser")
