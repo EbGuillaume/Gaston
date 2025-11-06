@@ -53,7 +53,7 @@ export const useLibraryStore = defineStore('library', () => {
       const response = await fetch('/api/scan/directory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path })
+        body: JSON.stringify({ path, save_to_db: true })
       })
       if (!response.ok) throw new Error('Failed to scan directory')
       return await response.json()
@@ -63,6 +63,75 @@ export const useLibraryStore = defineStore('library', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  function scanDirectoryStream(path, callbacks) {
+    const eventSource = new EventSource(`/api/scan/directory-stream?path=${encodeURIComponent(path)}&save_to_db=true`)
+
+    eventSource.addEventListener('message', (event) => {
+      const data = JSON.parse(event.data)
+
+      switch (data.type) {
+        case 'status':
+          callbacks.onStatus?.(data.message)
+          break
+        case 'found':
+          callbacks.onFound?.(data.total)
+          break
+        case 'progress':
+          callbacks.onProgress?.(data.current, data.total, data.filename)
+          break
+        case 'complete':
+          callbacks.onComplete?.(data)
+          eventSource.close()
+          break
+        case 'error':
+          callbacks.onError?.(data.message)
+          eventSource.close()
+          break
+      }
+    })
+
+    eventSource.onerror = (err) => {
+      console.error('EventSource error:', err)
+      callbacks.onError?.('Connection lost')
+      eventSource.close()
+    }
+
+    return eventSource
+  }
+
+  function enrichAllStream(callbacks) {
+    const eventSource = new EventSource('/api/metadata/enrich-all-stream?auto_validate_threshold=0.80&batch_size=10')
+
+    eventSource.addEventListener('message', (event) => {
+      const data = JSON.parse(event.data)
+
+      switch (data.type) {
+        case 'found':
+          callbacks.onFound?.(data.total)
+          break
+        case 'progress':
+          callbacks.onProgress?.(data.current, data.total, data.filename)
+          break
+        case 'complete':
+          callbacks.onComplete?.(data)
+          eventSource.close()
+          break
+        case 'error':
+          callbacks.onError?.(data.message)
+          eventSource.close()
+          break
+      }
+    })
+
+    eventSource.onerror = (err) => {
+      console.error('EventSource error:', err)
+      callbacks.onError?.('Connection lost')
+      eventSource.close()
+    }
+
+    return eventSource
   }
 
   return {
@@ -77,6 +146,8 @@ export const useLibraryStore = defineStore('library', () => {
     // Actions
     fetchStats,
     fetchBooks,
-    scanDirectory
+    scanDirectory,
+    scanDirectoryStream,
+    enrichAllStream
   }
 })

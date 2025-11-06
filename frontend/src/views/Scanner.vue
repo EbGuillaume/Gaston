@@ -18,10 +18,17 @@
           />
         </div>
 
-        <button type="submit" class="btn btn-primary" :disabled="loading">
-          {{ loading ? 'Scan en cours...' : 'Scanner' }}
+        <button type="submit" class="btn btn-primary" :disabled="loading || scanning">
+          {{ scanning ? 'Scan en cours...' : 'Scanner' }}
         </button>
       </form>
+
+      <div v-if="scanning && scanProgress.total > 0" class="progress-info">
+        <p>
+          <strong>{{ scanProgress.current }}/{{ scanProgress.total }}</strong> fichiers scannés
+        </p>
+        <p class="current-file">{{ scanProgress.filename }}</p>
+      </div>
 
       <div v-if="scanResult" class="success">
         ✓ Scan terminé: {{ scanResult.total_files }} fichiers trouvés,
@@ -77,6 +84,8 @@ const { loading, error } = storeToRefs(libraryStore)
 
 const scanPath = ref('')
 const scanResult = ref(null)
+const scanning = ref(false)
+const scanProgress = ref({ current: 0, total: 0, filename: '' })
 
 // Enrichissement
 const enriching = ref(false)
@@ -86,60 +95,61 @@ const enrichResult = ref(null)
 async function handleScan() {
   try {
     scanResult.value = null
-    const result = await libraryStore.scanDirectory(scanPath.value)
-    scanResult.value = result
+    scanning.value = true
+    scanProgress.value = { current: 0, total: 0, filename: '' }
+
+    libraryStore.scanDirectoryStream(scanPath.value, {
+      onStatus: (message) => {
+        console.log('Status:', message)
+      },
+      onFound: (total) => {
+        scanProgress.value.total = total
+      },
+      onProgress: (current, total, filename) => {
+        scanProgress.value = { current, total, filename }
+      },
+      onComplete: (result) => {
+        scanResult.value = result
+        scanning.value = false
+      },
+      onError: (message) => {
+        libraryStore.error = message
+        scanning.value = false
+      }
+    })
   } catch (e) {
     console.error('Scan failed:', e)
+    scanning.value = false
   }
 }
 
 async function handleEnrichAll() {
-  enriching.value = true
-  enrichProgress.value = 0
-  enrichResult.value = null
-
   try {
-    // Récupérer le nombre total de livres
-    const statsResponse = await fetch('/api/organize/stats')
-    const stats = await statsResponse.json()
-    const totalBooks = stats.total_books
+    enriching.value = true
+    enrichProgress.value = 0
+    enrichResult.value = null
 
-    if (totalBooks === 0) {
-      alert('Aucun livre à enrichir. Scannez d\'abord un dossier!')
-      return
-    }
-
-    let success = 0
-    let failed = 0
-
-    // Enrichir chaque livre (avec threshold plus bas pour enrichissement automatique)
-    for (let id = 1; id <= totalBooks; id++) {
-      try {
-        const response = await fetch(`/api/metadata/match/${id}?auto_validate_threshold=0.80`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        })
-
-        const result = await response.json()
-
-        if (response.ok && result.status === 'success') {
-          success++
-        } else {
-          failed++
+    libraryStore.enrichAllStream({
+      onFound: (total) => {
+        console.log(`Found ${total} books to enrich`)
+      },
+      onProgress: (current, total, filename) => {
+        enrichProgress.value = Math.round((current / total) * 100)
+      },
+      onComplete: (result) => {
+        enrichResult.value = {
+          success: result.success,
+          failed: result.failed + result.skipped
         }
-      } catch (e) {
-        failed++
+        enriching.value = false
+      },
+      onError: (message) => {
+        libraryStore.error = message
+        enriching.value = false
       }
-
-      // Mettre à jour la progression
-      enrichProgress.value = Math.round((id / totalBooks) * 100)
-    }
-
-    enrichResult.value = { success, failed }
-
+    })
   } catch (e) {
-    error.value = e.message
-  } finally {
+    console.error('Enrich failed:', e)
     enriching.value = false
   }
 }
@@ -204,5 +214,26 @@ function formatSize(bytes) {
 
 .format-count {
   color: #666;
+}
+
+.progress-info {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #e3f2fd;
+  border-radius: 4px;
+  border-left: 4px solid var(--primary-color);
+}
+
+.progress-info p {
+  margin: 0.5rem 0;
+}
+
+.current-file {
+  font-family: monospace;
+  color: #555;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

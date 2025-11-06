@@ -1,13 +1,17 @@
 """API routes for metadata operations."""
+import asyncio
+import json
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import get_db
 from backend.database.crud import BookCRUD, MetadataCRUD
+from backend.database.models import Book
 from backend.matching.name_matcher import NameMatcher
 from backend.scrapers.cache import ScraperCache
 
@@ -283,6 +287,170 @@ async def batch_match_metadata(
 
     finally:
         await matcher.close()
+
+
+@router.get("/enrich-all-stream")
+async def enrich_all_stream(
+    auto_validate_threshold: float = 0.80,
+    batch_size: int = 10,
+    db: Session = Depends(get_db),
+):
+    """
+    Enrich all books with Server-Sent Events for real-time progress.
+    Processes books in parallel batches for speed.
+
+    Args:
+        auto_validate_threshold: Confidence threshold for auto-validation
+        batch_size: Number of books to process in parallel (default: 10)
+        db: Database session
+
+    Returns:
+        SSE stream with enrichment progress
+    """
+
+    async def event_generator():
+        """Generate SSE events for enrichment progress."""
+        try:
+            # Récupérer tous les livres
+            books = db.query(Book).all()
+            total_books = len(books)
+
+            if total_books == 0:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No books to enrich'})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'type': 'found', 'total': total_books})}\n\n"
+            await asyncio.sleep(0)
+
+            success = 0
+            failed = 0
+            skipped = 0
+
+            # Créer un matcher réutilisable
+            matcher = NameMatcher(use_cache=True)
+
+            try:
+                # Traiter par lots
+                for batch_start in range(0, total_books, batch_size):
+                    batch_end = min(batch_start + batch_size, total_books)
+                    batch = books[batch_start:batch_end]
+
+                    # Traiter le lot en parallèle
+                    tasks = []
+                    for book in batch:
+                        tasks.append(_enrich_single_book(book, matcher, auto_validate_threshold, db))
+
+                    # Attendre que tout le lot soit traité
+                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # Traiter les résultats du lot
+                    for idx, result in enumerate(batch_results):
+                        book = batch[idx]
+                        current_idx = batch_start + idx + 1
+
+                        # Envoyer la progression
+                        yield f"data: {json.dumps({'type': 'progress', 'current': current_idx, 'total': total_books, 'filename': book.filename})}\n\n"
+                        await asyncio.sleep(0)
+
+                        if isinstance(result, Exception):
+                            logger.error(f"Error enriching book {book.id}: {result}")
+                            failed += 1
+                        elif result == "success":
+                            success += 1
+                        elif result == "skipped":
+                            skipped += 1
+                        else:
+                            failed += 1
+
+                # Résultat final
+                result_data = {
+                    "type": "complete",
+                    "total": total_books,
+                    "success": success,
+                    "failed": failed,
+                    "skipped": skipped,
+                }
+
+                yield f"data: {json.dumps(result_data)}\n\n"
+
+                logger.info(
+                    f"Enrichment completed: {success} success, {failed} failed, {skipped} skipped"
+                )
+
+            finally:
+                await matcher.close()
+
+        except Exception as e:
+            logger.error(f"Error during enrichment: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _enrich_single_book(book, matcher, threshold, db):
+    """
+    Helper function to enrich a single book.
+
+    Args:
+        book: Book object
+        matcher: NameMatcher instance
+        threshold: Confidence threshold
+        db: Database session
+
+    Returns:
+        "success", "skipped", or "failed"
+    """
+    try:
+        # Vérifier si des métadonnées existent déjà
+        existing_metadata = MetadataCRUD.get_by_book(db, book.id)
+        if existing_metadata:
+            return "skipped"
+
+        # Chercher les correspondances
+        matches = await matcher.match(book.filename, full_path=book.original_path)
+
+        if not matches:
+            return "failed"
+
+        best_match = matches[0]
+
+        # Auto-validation si confiance suffisante
+        if best_match.confidence >= threshold:
+            # Sauvegarder les métadonnées
+            MetadataCRUD.create(
+                db,
+                book_id=book.id,
+                source=best_match.source,
+                confidence_score=best_match.confidence,
+                series_name=best_match.series_name,
+                volume_number=best_match.volume_number,
+                title=best_match.title,
+                summary=best_match.summary,
+                writers=",".join(best_match.writers) if best_match.writers else None,
+                pencillers=",".join(best_match.pencillers) if best_match.pencillers else None,
+                publisher=best_match.publisher,
+                publication_date=best_match.publication_date,
+                cover_url=best_match.cover_url,
+            )
+
+            # Marquer le livre comme ayant des métadonnées
+            BookCRUD.update(db, book.id, has_metadata=True)
+
+            return "success"
+        else:
+            return "failed"
+
+    except Exception as e:
+        logger.error(f"Error enriching book {book.id}: {e}")
+        return "failed"
 
 
 @router.get("/cache/stats")
