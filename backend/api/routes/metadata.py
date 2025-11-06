@@ -119,6 +119,17 @@ async def match_book_metadata(
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
 
+    # Vérifier si des métadonnées existent déjà
+    existing_metadata = MetadataCRUD.get_by_book(db, book_id)
+    if existing_metadata:
+        logger.info(f"Metadata already exists for book {book_id}")
+        return {
+            "status": "success",
+            "message": "Metadata already exists",
+            "metadata_id": existing_metadata.id,
+            "confidence": existing_metadata.confidence_score,
+        }
+
     # Matcher
     matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
 
@@ -163,7 +174,7 @@ async def match_book_metadata(
             )
 
             return {
-                "status": "auto_validated",
+                "status": "success",
                 "message": "Metadata automatically saved",
                 "metadata_id": metadata.id,
                 "confidence": best_match.confidence,

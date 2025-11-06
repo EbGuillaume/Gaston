@@ -30,6 +30,7 @@ class ScanResponse(BaseModel):
     total_size_bytes: int
     corrupted_count: int
     saved_to_db: int = 0
+    skipped_count: int = 0
     message: str
 
 
@@ -55,12 +56,24 @@ async def scan_directory(request: ScanRequest, db: Session = Depends(get_db)):
         results = scanner.scan_and_analyze(request.path)
 
         saved_count = 0
+        skipped_count = 0
 
         # Sauvegarder en DB si demandé
         if request.save_to_db:
             for file_info in results["files"]:
                 if file_info.get("is_corrupted"):
                     continue
+
+                # Vérifier si le livre existe déjà (par hash)
+                file_hash = file_info.get("hash")
+                if file_hash:
+                    existing_book = BookCRUD.get_by_hash(db, file_hash)
+                    if existing_book:
+                        logger.debug(
+                            f"Skipping {file_info['filename']}: already exists (hash: {file_hash[:8]}...)"
+                        )
+                        skipped_count += 1
+                        continue
 
                 # Créer ou récupérer la série (on utilisera le type comme nom pour l'instant)
                 series_name = file_info.get("type", "Unknown")
@@ -93,12 +106,13 @@ async def scan_directory(request: ScanRequest, db: Session = Depends(get_db)):
             total_size_bytes=results["total_size"],
             corrupted_count=len(results["corrupted"]),
             saved_to_db=saved_count,
-            message=f"Scanned {results['total_files']} files, {saved_count} saved to database",
+            skipped_count=skipped_count,
+            message=f"Scanned {results['total_files']} files, {saved_count} saved to database, {skipped_count} duplicates skipped",
         )
 
         logger.info(
             f"Scan completed: {results['total_files']} files found, "
-            f"{saved_count} saved to DB"
+            f"{saved_count} saved to DB, {skipped_count} skipped (duplicates)"
         )
 
         return response
