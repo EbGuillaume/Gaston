@@ -28,7 +28,7 @@ FAILED=0
 for id in $(seq 1 $TOTAL_BOOKS); do
     echo -n "  📖 Livre $id/$TOTAL_BOOKS... "
 
-    RESPONSE=$(curl -s -X POST "$API_URL/api/metadata/match/$id" -H "Content-Type: application/json")
+    RESPONSE=$(curl -s -X POST "$API_URL/api/metadata/match/$id?auto_validate_threshold=0.80" -H "Content-Type: application/json")
     STATUS=$(echo $RESPONSE | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', 'error'))" 2>/dev/null || echo "error")
 
     if [ "$STATUS" = "success" ]; then
