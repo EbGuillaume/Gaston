@@ -112,10 +112,10 @@ async function handleEnrichAll() {
     let success = 0
     let failed = 0
 
-    // Enrichir chaque livre
+    // Enrichir chaque livre (avec threshold plus bas pour enrichissement automatique)
     for (let id = 1; id <= totalBooks; id++) {
       try {
-        const response = await fetch(`/api/metadata/match/${id}`, {
+        const response = await fetch(`/api/metadata/match/${id}?auto_validate_threshold=0.80`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         })
