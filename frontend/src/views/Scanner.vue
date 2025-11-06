@@ -31,6 +31,19 @@
       <div v-if="error" class="error">{{ error }}</div>
     </div>
 
+    <div class="card">
+      <h2>Enrichir les métadonnées</h2>
+      <p>Enrichir automatiquement les métadonnées de tous les livres scannés</p>
+
+      <button @click="handleEnrichAll" class="btn btn-secondary" :disabled="loading || enriching">
+        {{ enriching ? `Enrichissement ${enrichProgress}%...` : '✨ Enrichir tous les livres' }}
+      </button>
+
+      <div v-if="enrichResult" class="success">
+        ✓ Enrichissement terminé: {{ enrichResult.success }} succès, {{ enrichResult.failed }} échecs
+      </div>
+    </div>
+
     <div v-if="scanResult" class="card">
       <h2>Résultats du dernier scan</h2>
 
@@ -63,6 +76,11 @@ const { loading, error } = storeToRefs(libraryStore)
 const scanPath = ref('')
 const scanResult = ref(null)
 
+// Enrichissement
+const enriching = ref(false)
+const enrichProgress = ref(0)
+const enrichResult = ref(null)
+
 async function handleScan() {
   try {
     scanResult.value = null
@@ -70,6 +88,57 @@ async function handleScan() {
     scanResult.value = result
   } catch (e) {
     console.error('Scan failed:', e)
+  }
+}
+
+async function handleEnrichAll() {
+  enriching.value = true
+  enrichProgress.value = 0
+  enrichResult.value = null
+
+  try {
+    // Récupérer le nombre total de livres
+    const statsResponse = await fetch('/api/organize/stats')
+    const stats = await statsResponse.json()
+    const totalBooks = stats.total_books
+
+    if (totalBooks === 0) {
+      alert('Aucun livre à enrichir. Scannez d\'abord un dossier!')
+      return
+    }
+
+    let success = 0
+    let failed = 0
+
+    // Enrichir chaque livre
+    for (let id = 1; id <= totalBooks; id++) {
+      try {
+        const response = await fetch(`/api/metadata/match/${id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+
+        const result = await response.json()
+
+        if (response.ok && result.status === 'success') {
+          success++
+        } else {
+          failed++
+        }
+      } catch (e) {
+        failed++
+      }
+
+      // Mettre à jour la progression
+      enrichProgress.value = Math.round((id / totalBooks) * 100)
+    }
+
+    enrichResult.value = { success, failed }
+
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    enriching.value = false
   }
 }
 

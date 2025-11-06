@@ -86,6 +86,14 @@
           <p><strong>Échecs:</strong> {{ organizeResult.failed }}</p>
           <p><strong>Ignorés:</strong> {{ organizeResult.skipped }}</p>
         </div>
+        <div v-else-if="organizeResult.message === 'No books to organize'" class="help-info">
+          <p><strong>💡 Que faire?</strong></p>
+          <ol style="text-align: left; margin: 1rem 0;">
+            <li>Allez sur <router-link to="/scanner">Scanner</router-link> pour scanner un dossier</li>
+            <li>Enrichissez les métadonnées (via API ou scripts)</li>
+            <li>Revenez ici pour organiser</li>
+          </ol>
+        </div>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -308,5 +316,27 @@ async function handleOrganize() {
 
 .result-stats p {
   margin: 0.5rem 0;
+}
+
+.help-info {
+  background: #fff9e6;
+  border: 2px solid var(--warning-color);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.help-info p {
+  margin: 0 0 0.5rem 0;
+}
+
+.help-info ol {
+  margin: 0.5rem 0 0 1.5rem;
+  line-height: 1.8;
+}
+
+.help-info a {
+  color: var(--primary-color);
+  text-decoration: underline;
 }
 </style>
