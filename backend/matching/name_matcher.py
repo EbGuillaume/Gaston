@@ -123,6 +123,15 @@ class NameMatcher:
 
             all_results.extend(results)
 
+        # Préserver le volume_number extrait du filename si les résultats n'en ont pas
+        if volume_number is not None and volume_number > 0:
+            for result in all_results:
+                if result.volume_number is None:
+                    result.volume_number = volume_number
+                    logger.debug(
+                        f"Assigned volume_number={volume_number} from filename to {result.series_name}"
+                    )
+
         # Filtrer par confiance minimale
         all_results = [r for r in all_results if r.confidence >= self.min_confidence]
 
