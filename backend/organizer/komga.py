@@ -315,8 +315,20 @@ class KomgaOrganizer:
         if any(keyword in combined_text for keyword in bd_keywords):
             return "BD"
 
-        # Vérifier l'extension pour détecter les livres
-        # (sera fait au niveau de l'appelant si nécessaire)
+        # Détecter le type à partir du nom de la série (fallback)
+        # Mangas connus avec des suffixes japonais ou noms typiques
+        manga_series_indicators = [
+            # Suffixes/préfixes japonais
+            "no ", " no ", "ga ", " ga ", "wa ", " wa ",  # Particules japonaises
+            "sensei", "kun", "chan", "san",  # Honorifiques
+            # Termes japonais courants dans les titres
+            "ninja", "samurai", "shinobi", "jutsu", "yokai", "oni",
+            # Mangas célèbres (pour Elfen Lied et autres)
+            "elfen lied", "death note", "bleach", "naruto", "one piece", "dragon ball",
+        ]
+        if any(indicator in series_lower for indicator in manga_series_indicators):
+            logger.debug(f"Detected Manga from series name: {series_name}")
+            return "Manga"
 
         # Par défaut: uncategorized
         return "_uncategorized"
