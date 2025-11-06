@@ -230,6 +230,7 @@ async def organize_library(request: OrganizeRequest, db: Session = Depends(get_d
                     target_path=target_path,
                     metadata=metadata_dict,
                     copy_instead_of_move=request.copy_instead_of_move,
+                    source_hash=book.file_hash,
                 )
 
                 if success:

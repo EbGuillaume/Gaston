@@ -29,12 +29,21 @@ class FileMover:
         self.dry_run = dry_run
         self.comicinfo_generator = ComicInfoGenerator()
 
+        # Priorité des formats (plus haut = meilleur)
+        self.format_priority = {
+            ".cbz": 3,  # Meilleur: modifiable, ComicInfo.xml
+            ".cbr": 2,  # Moyen: RAR, lecture seule
+            ".pdf": 1,  # Moins bon pour les BD
+            ".epub": 1,
+        }
+
     def move_with_metadata(
         self,
         source_path: Path,
         target_path: Path,
         metadata: Optional[dict] = None,
         copy_instead_of_move: bool = False,
+        source_hash: Optional[str] = None,
     ) -> bool:
         """
         Move file to target with metadata injection (if CBZ).
@@ -44,6 +53,7 @@ class FileMover:
             target_path: Target file path
             metadata: Metadata dictionary for ComicInfo.xml
             copy_instead_of_move: Copy instead of moving
+            source_hash: Hash of source file for duplicate detection
 
         Returns:
             True if successful
@@ -59,17 +69,24 @@ class FileMover:
 
             # Vérifier si le fichier existe déjà
             if target_path.exists():
-                logger.warning(f"Target file already exists: {target_path}")
-                # Ajouter un suffixe numérique
-                counter = 1
-                while True:
-                    new_target = target_path.parent / (
-                        target_path.stem + f" ({counter})" + target_path.suffix
+                # Comparer avec le fichier existant pour déterminer lequel garder
+                should_replace = self._should_replace_existing(
+                    source_path, target_path, source_hash
+                )
+
+                if should_replace:
+                    logger.info(
+                        f"Replacing {target_path.name} with better quality version"
                     )
-                    if not new_target.exists():
-                        target_path = new_target
-                        break
-                    counter += 1
+                    # Supprimer l'ancien fichier
+                    if not self.dry_run:
+                        target_path.unlink()
+                else:
+                    # Le fichier existant est meilleur ou identique, ignorer le nouveau
+                    logger.info(
+                        f"Skipping {source_path.name}: existing file is better or identical"
+                    )
+                    return True  # Considéré comme succès (pas d'erreur)
 
             if self.dry_run:
                 logger.info(f"[DRY RUN] Would move: {source_path} -> {target_path}")
@@ -293,3 +310,74 @@ class FileMover:
         except Exception as e:
             logger.error(f"Failed to verify move: {e}")
             return False
+
+    def _should_replace_existing(
+        self,
+        source_path: Path,
+        target_path: Path,
+        source_hash: Optional[str] = None,
+    ) -> bool:
+        """
+        Determine if source file should replace existing target file.
+
+        Comparison logic:
+        1. If hash identical: keep existing (perfect duplicate)
+        2. If different format: keep format with higher priority (CBZ > CBR > PDF)
+        3. If same format: keep larger file (better quality)
+
+        Args:
+            source_path: New source file
+            target_path: Existing target file
+            source_hash: Hash of source file (if available)
+
+        Returns:
+            True if source should replace target, False otherwise
+        """
+        try:
+            # Si on a le hash, calculer celui du fichier existant
+            if source_hash:
+                import hashlib
+
+                with open(target_path, "rb") as f:
+                    target_hash = hashlib.md5(f.read()).hexdigest()
+
+                if source_hash == target_hash:
+                    logger.debug("Files have identical hash - keeping existing")
+                    return False  # Doublon parfait, garder l'existant
+
+            # Comparer les formats
+            source_ext = source_path.suffix.lower()
+            target_ext = target_path.suffix.lower()
+
+            source_priority = self.format_priority.get(source_ext, 0)
+            target_priority = self.format_priority.get(target_ext, 0)
+
+            if source_priority > target_priority:
+                logger.debug(
+                    f"Source format {source_ext} better than target {target_ext}"
+                )
+                return True
+            elif source_priority < target_priority:
+                logger.debug(
+                    f"Target format {target_ext} better than source {source_ext}"
+                )
+                return False
+
+            # Même format: comparer les tailles
+            source_size = source_path.stat().st_size
+            target_size = target_path.stat().st_size
+
+            if source_size > target_size:
+                logger.debug(
+                    f"Source larger ({source_size} bytes) than target ({target_size} bytes)"
+                )
+                return True
+            else:
+                logger.debug(
+                    f"Target larger or equal ({target_size} bytes) to source ({source_size} bytes)"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(f"Error comparing files: {e}")
+            return False  # En cas d'erreur, garder l'existant par sécurité
