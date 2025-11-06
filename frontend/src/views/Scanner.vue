@@ -26,6 +26,7 @@
       <div v-if="scanResult" class="success">
         ✓ Scan terminé: {{ scanResult.total_files }} fichiers trouvés,
         {{ scanResult.saved_to_db }} sauvegardés
+        <span v-if="scanResult.skipped_count > 0">, {{ scanResult.skipped_count }} doublons ignorés</span>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -50,6 +51,7 @@
       <div class="result-stats">
         <p><strong>Fichiers trouvés:</strong> {{ scanResult.total_files }}</p>
         <p><strong>Sauvegardés en DB:</strong> {{ scanResult.saved_to_db }}</p>
+        <p><strong>Doublons ignorés:</strong> {{ scanResult.skipped_count }}</p>
         <p><strong>Fichiers corrompus:</strong> {{ scanResult.corrupted_count }}</p>
         <p><strong>Taille totale:</strong> {{ formatSize(scanResult.total_size_bytes) }}</p>
       </div>
