@@ -105,13 +105,17 @@ class FileScanner:
         return all_files
 
     @staticmethod
-    def calculate_file_hash(file_path: str, algorithm: str = "md5") -> Optional[str]:
+    def calculate_file_hash(
+        file_path: str, algorithm: str = "md5", partial: bool = True, partial_size: int = 1048576
+    ) -> Optional[str]:
         """
-        Calcule le hash d'un fichier.
+        Calcule le hash d'un fichier (complet ou partiel).
 
         Args:
             file_path: Chemin du fichier
             algorithm: Algorithme de hash (md5, sha256)
+            partial: Si True, calcule uniquement le hash des premiers bytes (beaucoup plus rapide)
+            partial_size: Taille en bytes pour le hash partiel (défaut: 1 MB)
 
         Returns:
             Hash du fichier en hexadécimal, ou None en cas d'erreur
@@ -120,9 +124,15 @@ class FileScanner:
 
         try:
             with open(file_path, "rb") as f:
-                # Lire le fichier par blocs pour économiser la mémoire
-                for chunk in iter(lambda: f.read(8192), b""):
+                if partial:
+                    # Hash partiel: lire uniquement les premiers bytes
+                    # Beaucoup plus rapide pour de gros fichiers
+                    chunk = f.read(partial_size)
                     hash_func.update(chunk)
+                else:
+                    # Hash complet: lire tout le fichier par blocs
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        hash_func.update(chunk)
 
             return hash_func.hexdigest()
 
