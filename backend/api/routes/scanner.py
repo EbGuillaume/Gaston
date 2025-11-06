@@ -62,6 +62,16 @@ async def scan_directory(request: ScanRequest, db: Session = Depends(get_db)):
                 if file_info.get("is_corrupted"):
                     continue
 
+                # Vérifier si le livre existe déjà (par hash)
+                file_hash = file_info.get("hash")
+                if file_hash:
+                    existing_book = BookCRUD.get_by_hash(db, file_hash)
+                    if existing_book:
+                        logger.debug(
+                            f"Skipping {file_info['filename']}: already exists (hash: {file_hash[:8]}...)"
+                        )
+                        continue
+
                 # Créer ou récupérer la série (on utilisera le type comme nom pour l'instant)
                 series_name = file_info.get("type", "Unknown")
                 series = SeriesCRUD.get_by_name(db, series_name)
