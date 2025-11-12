@@ -23,6 +23,27 @@
           <option value="confidence">Confiance</option>
           <option value="series">Série</option>
         </select>
+
+        <button
+          @click="enrichAllBooks"
+          class="btn btn-success"
+          :disabled="enrichingAll || loading"
+          title="Enrichir tous les livres sans métadonnées"
+        >
+          {{ enrichingAll ? `⏳ ${enrichProgress.current}/${enrichProgress.total}` : '✨ Enrichir tous' }}
+        </button>
+      </div>
+
+      <div v-if="enrichingAll" class="enrichment-progress">
+        <div class="progress-bar-container">
+          <div class="progress-bar" :style="{ width: enrichProgressPercent + '%' }"></div>
+        </div>
+        <div class="progress-text">
+          Enrichissement en cours: {{ enrichProgress.current }} / {{ enrichProgress.total }} livres
+          <span v-if="enrichProgress.currentBook" class="current-book">
+            ({{ enrichProgress.currentBook }})
+          </span>
+        </div>
       </div>
 
       <div v-if="loading" class="loading">Chargement...</div>
@@ -323,6 +344,17 @@ const editingBook = ref(null)
 const loadingMetadata = ref(false)
 const saving = ref(false)
 const enriching = reactive({})
+const enrichingAll = ref(false)
+const enrichProgress = reactive({
+  current: 0,
+  total: 0,
+  currentBook: ''
+})
+
+const enrichProgressPercent = computed(() => {
+  if (enrichProgress.total === 0) return 0
+  return Math.round((enrichProgress.current / enrichProgress.total) * 100)
+})
 
 const editForm = reactive({
   series_name: '',
@@ -547,6 +579,66 @@ async function enrichBook(bookId) {
     error.value = e.message
   } finally {
     enriching[bookId] = false
+  }
+}
+
+async function enrichAllBooks() {
+  try {
+    enrichingAll.value = true
+    enrichProgress.current = 0
+    enrichProgress.total = 0
+    enrichProgress.currentBook = ''
+
+    // Récupérer tous les livres sans métadonnées
+    const response = await fetch('/api/books/?has_metadata=false&limit=1000')
+    if (!response.ok) throw new Error('Failed to fetch books')
+
+    const data = await response.json()
+    const booksToEnrich = data.books
+
+    if (booksToEnrich.length === 0) {
+      alert('Aucun livre à enrichir')
+      return
+    }
+
+    enrichProgress.total = booksToEnrich.length
+
+    // Enrichir les livres un par un
+    for (const book of booksToEnrich) {
+      enrichProgress.currentBook = book.filename
+
+      try {
+        const enrichResponse = await fetch(`/api/metadata/match/${book.id}?auto_validate_threshold=0.80`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (enrichResponse.ok) {
+          console.log(`Book ${book.id} enriched successfully`)
+        } else {
+          console.error(`Failed to enrich book ${book.id}`)
+        }
+      } catch (e) {
+        console.error(`Error enriching book ${book.id}:`, e)
+      }
+
+      enrichProgress.current++
+
+      // Recharger les livres pour mettre à jour l'affichage
+      await loadBooks()
+    }
+
+    alert(`Enrichissement terminé: ${enrichProgress.current}/${enrichProgress.total} livres traités`)
+  } catch (e) {
+    console.error('Error during batch enrichment:', e)
+    error.value = e.message
+  } finally {
+    enrichingAll.value = false
+    enrichProgress.current = 0
+    enrichProgress.total = 0
+    enrichProgress.currentBook = ''
   }
 }
 
@@ -804,5 +896,67 @@ onMounted(() => {
 
 .btn-secondary:hover {
   background: #5a6268;
+}
+
+.enrichment-progress {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+  border-left: 4px solid var(--primary-color);
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 24px;
+  background: #e9ecef;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.progress-text {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.current-book {
+  display: block;
+  margin-top: 0.25rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #777;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-success {
+  background: #28a745;
+  color: white;
+  white-space: nowrap;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #218838;
+  opacity: 1;
+}
+
+.btn-success:disabled {
+  background: #6c757d;
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 </style>
