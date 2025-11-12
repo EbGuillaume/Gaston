@@ -1,4 +1,5 @@
 """BDPhile.fr scraper for French BD/Comics metadata."""
+# Fixed 404 detection bug
 import re
 from typing import List, Optional
 from urllib.parse import quote
@@ -500,12 +501,12 @@ class BDPhileScraper(BaseScraper):
         if cover_img:
             details["cover_url"] = cover_img.get("src")
 
-        # Synopsis
-        synopsis_div = soup.find("div", class_="synopsis")
-        if not synopsis_div:
-            synopsis_div = soup.find("div", id="synopsis")
-        if synopsis_div:
-            details["summary"] = synopsis_div.get_text(strip=True)
+        # Synopsis - peut être dans un <p> ou <div>
+        synopsis_elem = soup.find(class_="synopsis")
+        if not synopsis_elem:
+            synopsis_elem = soup.find(id="synopsis")
+        if synopsis_elem:
+            details["summary"] = synopsis_elem.get_text(strip=True)
 
         # Déduire le nom de série depuis le titre complet si pas trouvé
         if "series_name" not in details and "full_title" in details:

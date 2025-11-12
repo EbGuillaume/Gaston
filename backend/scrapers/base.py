@@ -72,6 +72,7 @@ class MetadataResult:
             "tags": self.tags,
             "cover_url": self.cover_url,
             "url": self.url,
+            "raw_data": self.raw_data,
         }
 
     def __repr__(self):

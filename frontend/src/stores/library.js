@@ -101,8 +101,8 @@ export const useLibraryStore = defineStore('library', () => {
     return eventSource
   }
 
-  function enrichAllStream(callbacks) {
-    const eventSource = new EventSource('/api/metadata/enrich-all-stream?auto_validate_threshold=0.80&batch_size=10')
+  function enrichAllStream(callbacks, forceRefresh = true) {
+    const eventSource = new EventSource(`/api/metadata/enrich-all-stream?auto_validate_threshold=0.80&batch_size=10&force_refresh=${forceRefresh}`)
 
     eventSource.addEventListener('message', (event) => {
       const data = JSON.parse(event.data)

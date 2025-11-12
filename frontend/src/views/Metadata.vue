@@ -528,7 +528,7 @@ async function enrichBook(bookId) {
   enriching[bookId] = true
 
   try {
-    const response = await fetch(`/api/metadata/match/${bookId}`, {
+    const response = await fetch(`/api/metadata/match/${bookId}?auto_validate_threshold=0.80`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
