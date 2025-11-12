@@ -18,12 +18,6 @@
           <option :value="false">Sans métadonnées</option>
         </select>
 
-        <select v-model="sortBy" class="select" @change="loadBooks">
-          <option value="id">ID</option>
-          <option value="confidence">Confiance</option>
-          <option value="series">Série</option>
-        </select>
-
         <button
           @click="enrichAllBooks"
           class="btn btn-success"
@@ -61,13 +55,48 @@
         <table v-else class="metadata-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Fichier</th>
-              <th>Série</th>
-              <th>Volume</th>
-              <th>Titre</th>
-              <th>Éditeur</th>
-              <th>Confiance</th>
+              <th class="sortable" @click="sortTable('id')">
+                #
+                <span class="sort-arrow" v-if="sortColumn === 'id'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('filename')">
+                Fichier
+                <span class="sort-arrow" v-if="sortColumn === 'filename'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('series_name')">
+                Série
+                <span class="sort-arrow" v-if="sortColumn === 'series_name'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('volume_number')">
+                Volume
+                <span class="sort-arrow" v-if="sortColumn === 'volume_number'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('title')">
+                Titre
+                <span class="sort-arrow" v-if="sortColumn === 'title'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('publisher')">
+                Éditeur
+                <span class="sort-arrow" v-if="sortColumn === 'publisher'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('confidence_score')">
+                Confiance
+                <span class="sort-arrow" v-if="sortColumn === 'confidence_score'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -333,7 +362,8 @@ const loading = ref(false)
 const error = ref(null)
 const searchQuery = ref('')
 const filterMetadata = ref(null)
-const sortBy = ref('id')
+const sortColumn = ref('id')
+const sortOrder = ref('asc')
 
 const limit = 50
 const currentPage = ref(1)
@@ -395,23 +425,8 @@ async function loadBooks() {
 
     const data = await response.json()
 
-    // Trier côté client selon le choix
-    let sortedBooks = data.books
-    if (sortBy.value === 'confidence') {
-      sortedBooks = [...data.books].sort((a, b) => {
-        const scoreA = a.confidence_score || 0
-        const scoreB = b.confidence_score || 0
-        return scoreB - scoreA
-      })
-    } else if (sortBy.value === 'series') {
-      sortedBooks = [...data.books].sort((a, b) => {
-        const seriesA = a.series_name || ''
-        const seriesB = b.series_name || ''
-        return seriesA.localeCompare(seriesB)
-      })
-    }
-
-    books.value = sortedBooks
+    // Trier côté client selon sortColumn et sortOrder
+    books.value = sortBooks(data.books)
     totalBooks.value = data.total
   } catch (e) {
     error.value = e.message
@@ -428,6 +443,44 @@ function handleSearch() {
     currentPage.value = 1
     loadBooks()
   }, 300)
+}
+
+function sortBooks(booksArray) {
+  const sorted = [...booksArray].sort((a, b) => {
+    let valueA = a[sortColumn.value]
+    let valueB = b[sortColumn.value]
+
+    // Gérer les valeurs nulles/undefined
+    if (valueA === null || valueA === undefined) valueA = ''
+    if (valueB === null || valueB === undefined) valueB = ''
+
+    // Tri numérique pour id, volume_number et confidence_score
+    if (['id', 'volume_number', 'confidence_score'].includes(sortColumn.value)) {
+      valueA = Number(valueA) || 0
+      valueB = Number(valueB) || 0
+      return sortOrder.value === 'asc' ? valueA - valueB : valueB - valueA
+    }
+
+    // Tri alphabétique pour les autres colonnes
+    const comparison = String(valueA).localeCompare(String(valueB), 'fr', { numeric: true })
+    return sortOrder.value === 'asc' ? comparison : -comparison
+  })
+
+  return sorted
+}
+
+function sortTable(column) {
+  // Si on clique sur la même colonne, inverser l'ordre
+  if (sortColumn.value === column) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    // Nouvelle colonne, ordre croissant par défaut
+    sortColumn.value = column
+    sortOrder.value = 'asc'
+  }
+
+  // Re-trier les livres actuels
+  books.value = sortBooks(books.value)
 }
 
 function loadNextPage() {
@@ -697,8 +750,24 @@ onMounted(() => {
   background: #f8f9fa;
   padding: 0.75rem;
   text-align: left;
+}
+
+.metadata-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: background-color 0.2s;
+}
+
+.metadata-table th.sortable:hover {
+  background: #e9ecef;
+}
+
+.sort-arrow {
+  margin-left: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--primary-color);
   font-weight: bold;
-  border-bottom: 2px solid var(--border-color);
 }
 
 .metadata-table td {
