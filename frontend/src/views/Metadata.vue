@@ -38,6 +38,9 @@
             ({{ enrichProgress.currentBook }})
           </span>
         </div>
+        <div v-if="estimatedTimeRemaining" class="estimated-time">
+          {{ estimatedTimeRemaining }}
+        </div>
       </div>
 
       <div v-if="loading" class="loading">Chargement...</div>
@@ -414,6 +417,9 @@
 
 <script setup>
 import { ref, onMounted, computed, reactive } from 'vue'
+import { useLibraryStore } from '../stores/library'
+
+const libraryStore = useLibraryStore()
 
 const books = ref([])
 const totalBooks = ref(0)
@@ -437,12 +443,33 @@ const enrichingAll = ref(false)
 const enrichProgress = reactive({
   current: 0,
   total: 0,
-  currentBook: ''
+  currentBook: '',
+  startTime: 0
 })
 
 const enrichProgressPercent = computed(() => {
   if (enrichProgress.total === 0) return 0
   return Math.round((enrichProgress.current / enrichProgress.total) * 100)
+})
+
+const estimatedTimeRemaining = computed(() => {
+  if (!enrichingAll.value || enrichProgress.current === 0 || enrichProgress.startTime === 0) {
+    return ''
+  }
+
+  const elapsed = Date.now() - enrichProgress.startTime
+  const avgTimePerBook = elapsed / enrichProgress.current
+  const booksRemaining = enrichProgress.total - enrichProgress.current
+  const timeRemainingMs = avgTimePerBook * booksRemaining
+
+  const minutes = Math.floor(timeRemainingMs / 60000)
+  const seconds = Math.floor((timeRemainingMs % 60000) / 1000)
+
+  if (minutes > 0) {
+    return `Temps estimé restant: ${minutes}m ${seconds}s`
+  } else {
+    return `Temps estimé restant: ${seconds}s`
+  }
 })
 
 // État pour la fiche au survol
@@ -631,7 +658,7 @@ function showBookCard(book, event) {
   }
 
   cardPosition.x = x
-  cardPosition.y = y + window.scrollY
+  cardPosition.y = y  // Pas besoin d'ajouter scrollY car position: fixed
 }
 
 function hideBookCard() {
@@ -801,63 +828,94 @@ async function enrichBook(bookId) {
   }
 }
 
-async function enrichAllBooks() {
+function enrichAllBooks() {
+  // Vérifier si un enrichissement est déjà en cours
+  const enrichmentInProgress = localStorage.getItem('enrichment_in_progress')
+  if (enrichmentInProgress === 'true') {
+    const confirmRestart = confirm('Un enrichissement semble déjà en cours. Voulez-vous le relancer ? (Cela peut créer des conflits)')
+    if (!confirmRestart) {
+      return
+    }
+  }
+
   try {
     enrichingAll.value = true
     enrichProgress.current = 0
     enrichProgress.total = 0
     enrichProgress.currentBook = ''
+    enrichProgress.startTime = Date.now()
 
-    // Récupérer tous les livres sans métadonnées
-    const response = await fetch('/api/books/?has_metadata=false&limit=1000')
-    if (!response.ok) throw new Error('Failed to fetch books')
+    // Marquer qu'un enrichissement est en cours
+    localStorage.setItem('enrichment_in_progress', 'true')
+    localStorage.setItem('enrichment_start_time', enrichProgress.startTime.toString())
 
-    const data = await response.json()
-    const booksToEnrich = data.books
+    libraryStore.enrichAllStream({
+      onFound: (total) => {
+        enrichProgress.total = total
+        localStorage.setItem('enrichment_total', total.toString())
+        console.log(`Found ${total} books to enrich`)
+      },
+      onProgress: (current, total, filename) => {
+        enrichProgress.current = current
+        enrichProgress.total = total
+        enrichProgress.currentBook = filename
 
-    if (booksToEnrich.length === 0) {
-      alert('Aucun livre à enrichir')
-      return
-    }
+        // Sauvegarder la progression dans localStorage
+        localStorage.setItem('enrichment_current', current.toString())
+        localStorage.setItem('enrichment_total', total.toString())
+        localStorage.setItem('enrichment_current_book', filename)
 
-    enrichProgress.total = booksToEnrich.length
+        console.log(`Progress: ${current}/${total} - ${filename}`)
+      },
+      onComplete: (result) => {
+        enrichingAll.value = false
 
-    // Enrichir les livres un par un
-    for (const book of booksToEnrich) {
-      enrichProgress.currentBook = book.filename
+        // Marquer l'enrichissement comme terminé
+        localStorage.removeItem('enrichment_in_progress')
+        localStorage.removeItem('enrichment_current')
+        localStorage.removeItem('enrichment_total')
+        localStorage.removeItem('enrichment_current_book')
+        localStorage.removeItem('enrichment_start_time')
 
-      try {
-        const enrichResponse = await fetch(`/api/metadata/match/${book.id}?auto_validate_threshold=0.80`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        })
+        // Recharger la liste pour afficher les modifications
+        loadBooks()
 
-        if (enrichResponse.ok) {
-          console.log(`Book ${book.id} enriched successfully`)
-        } else {
-          console.error(`Failed to enrich book ${book.id}`)
-        }
-      } catch (e) {
-        console.error(`Error enriching book ${book.id}:`, e)
+        // Afficher le résumé
+        const message = `Enrichissement terminé:\n✅ ${result.success} livre(s) enrichi(s)\n⏭️ ${result.skipped} livre(s) ignoré(s)\n❌ ${result.failed} livre(s) échoué(s)`
+        alert(message)
+
+        // Réinitialiser les compteurs
+        enrichProgress.current = 0
+        enrichProgress.total = 0
+        enrichProgress.currentBook = ''
+      },
+      onError: (message) => {
+        error.value = message
+        enrichingAll.value = false
+
+        // Nettoyer localStorage en cas d'erreur
+        localStorage.removeItem('enrichment_in_progress')
+        localStorage.removeItem('enrichment_current')
+        localStorage.removeItem('enrichment_total')
+        localStorage.removeItem('enrichment_current_book')
+        localStorage.removeItem('enrichment_start_time')
+
+        enrichProgress.current = 0
+        enrichProgress.total = 0
+        enrichProgress.currentBook = ''
       }
-
-      enrichProgress.current++
-
-      // Recharger les livres pour mettre à jour l'affichage
-      await loadBooks()
-    }
-
-    alert(`Enrichissement terminé: ${enrichProgress.current}/${enrichProgress.total} livres traités`)
+    })
   } catch (e) {
     console.error('Error during batch enrichment:', e)
     error.value = e.message
-  } finally {
     enrichingAll.value = false
-    enrichProgress.current = 0
-    enrichProgress.total = 0
-    enrichProgress.currentBook = ''
+
+    // Nettoyer localStorage en cas d'erreur
+    localStorage.removeItem('enrichment_in_progress')
+    localStorage.removeItem('enrichment_current')
+    localStorage.removeItem('enrichment_total')
+    localStorage.removeItem('enrichment_current_book')
+    localStorage.removeItem('enrichment_start_time')
   }
 }
 
@@ -866,8 +924,38 @@ function closeModal() {
   resetEditForm()
 }
 
+function checkEnrichmentStatus() {
+  const inProgress = localStorage.getItem('enrichment_in_progress')
+  if (inProgress === 'true') {
+    const current = parseInt(localStorage.getItem('enrichment_current') || '0')
+    const total = parseInt(localStorage.getItem('enrichment_total') || '0')
+    const currentBook = localStorage.getItem('enrichment_current_book') || ''
+    const startTime = parseInt(localStorage.getItem('enrichment_start_time') || '0')
+
+    // Vérifier si l'enrichissement n'est pas trop vieux (plus de 2 heures)
+    const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
+    if (startTime < twoHoursAgo) {
+      // Nettoyer un enrichissement trop ancien
+      localStorage.removeItem('enrichment_in_progress')
+      localStorage.removeItem('enrichment_current')
+      localStorage.removeItem('enrichment_total')
+      localStorage.removeItem('enrichment_current_book')
+      localStorage.removeItem('enrichment_start_time')
+      return
+    }
+
+    // Restaurer la progression visuelle
+    enrichingAll.value = true
+    enrichProgress.current = current
+    enrichProgress.total = total
+    enrichProgress.currentBook = currentBook
+    enrichProgress.startTime = startTime
+  }
+}
+
 onMounted(() => {
   loadBooks()
+  checkEnrichmentStatus()
 })
 </script>
 
@@ -1176,6 +1264,14 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.estimated-time {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--primary-color);
+  font-weight: 500;
+  font-style: italic;
 }
 
 .btn-success {
