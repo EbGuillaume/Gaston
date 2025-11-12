@@ -1,4 +1,5 @@
 """BDPhile.fr scraper for French BD/Comics metadata."""
+# Fixed 404 detection bug
 import re
 from typing import List, Optional
 from urllib.parse import quote
@@ -89,14 +90,20 @@ class BDPhileScraper(BaseScraper):
         soup = BeautifulSoup(html, "html.parser")
         results = []
 
-        # Trouver les liens vers les séries
-        # Format BD: <a href="https://www.bdphile.fr/series/view/124/">Astérix</a>
-        # Format Comics: <a href="https://www.bdphile.fr/series/comics/4315-y-le-dernier-homme">Y le dernier homme</a>
+        # Trouver les liens vers les séries ET les one-shots
+        # Format BD série: <a href="https://www.bdphile.fr/series/view/124/">Astérix</a>
+        # Format Comics série: <a href="https://www.bdphile.fr/series/comics/4315-y-le-dernier-homme">Y le dernier homme</a>
+        # Format One-shot: <a href="https://www.bdphile.fr/album/bd/163900-alice-au-pays-du-chaos">Alice au pays du chaos</a>
         links = soup.find_all("a", href=True)
         serie_links = [
             link for link in links
-            if "/series/view/" in link.get("href", "") or "/series/comics/" in link.get("href", "")
+            if "/series/view/" in link.get("href", "")
+            or "/series/comics/" in link.get("href", "")
+            or "/album/bd/" in link.get("href", "")
+            or "/album/comics/" in link.get("href", "")
         ]
+
+        logger.debug(f"Found {len(serie_links)} total links (series + albums) for '{original_query}'")
 
         if not serie_links:
             logger.debug(f"No series links found for '{original_query}'")
@@ -120,26 +127,49 @@ class BDPhileScraper(BaseScraper):
 
                 series_name = link.get_text(strip=True)
 
-                # Extraire l'ID de la série depuis l'URL
-                # Format BD: /series/view/124/
-                # Format Comics: /series/comics/4315-y-le-dernier-homme
+                # Extraire l'ID depuis l'URL
+                # Format BD série: /series/view/124/
+                # Format Comics série: /series/comics/4315-y-le-dernier-homme
+                # Format BD one-shot: /album/bd/163900-alice-au-pays-du-chaos
+                # Format Comics one-shot: /album/comics/163900-titre
                 series_id = None
                 series_type = "bd"
+                is_oneshot = False
 
-                match_bd = re.search(r"/series/view/(\d+)", url)
-                match_comics = re.search(r"/series/comics/(\d+)", url)
+                match_bd_series = re.search(r"/series/view/(\d+)", url)
+                match_comics_series = re.search(r"/series/comics/(\d+)", url)
+                match_bd_album = re.search(r"/album/bd/(\d+)", url)
+                match_comics_album = re.search(r"/album/comics/(\d+)", url)
 
-                if match_bd:
-                    series_id = int(match_bd.group(1))
+                if match_bd_series:
+                    series_id = int(match_bd_series.group(1))
                     series_type = "bd"
-                elif match_comics:
-                    series_id = int(match_comics.group(1))
+                    logger.debug(f"Found BD series: {series_name} (ID {series_id})")
+                elif match_comics_series:
+                    series_id = int(match_comics_series.group(1))
                     series_type = "comics"
+                    logger.debug(f"Found comics series: {series_name} (ID {series_id})")
+                elif match_bd_album:
+                    series_id = int(match_bd_album.group(1))
+                    series_type = "bd"
+                    is_oneshot = True
+                    logger.debug(f"Found BD one-shot: {series_name} (ID {series_id})")
+                elif match_comics_album:
+                    series_id = int(match_comics_album.group(1))
+                    series_type = "comics"
+                    is_oneshot = True
+                    logger.debug(f"Found comics one-shot: {series_name} (ID {series_id})")
                 else:
                     continue
 
                 # Calculer un score de confiance basé sur la similarité du nom
                 confidence = self._calculate_confidence(original_query, series_name)
+
+                # Booster la confiance pour les one-shots qui correspondent bien
+                # Les one-shots doivent être prioritaires sur les séries du même nom
+                if is_oneshot:
+                    confidence = min(1.0, confidence * 1.15)
+                    logger.debug(f"Boosting one-shot confidence: {series_name} -> {confidence:.2f}")
 
                 # Créer un résultat basique (détails à récupérer plus tard)
                 result = MetadataResult(
@@ -147,7 +177,11 @@ class BDPhileScraper(BaseScraper):
                     confidence=confidence,
                     series_name=series_name,
                     url=url,
-                    raw_data={"series_id": series_id, "series_type": series_type},
+                    raw_data={
+                        "series_id": series_id,
+                        "series_type": series_type,
+                        "is_oneshot": is_oneshot,
+                    },
                 )
 
                 results.append(result)
@@ -202,20 +236,55 @@ class BDPhileScraper(BaseScraper):
 
                 album_title = link.get_text(strip=True)
 
-                # Extraire l'ID et le numéro depuis l'URL
+                # Extraire l'ID depuis l'URL
                 # Format BD: /album/bd/163670-asterix-2-la-serpe-d-or
-                # Format Comics: /album/comics/62942-y-le-dernier-homme-2-un-petit-coin-de-paradis
-                match = re.search(r"/album/(?:bd|comics)/(\d+)-.*?-(\d+)-", album_url)
-                if match:
-                    album_id = int(match.group(1))
-                    volume_number = int(match.group(2))
-                else:
-                    # Essayer sans numéro de tome
-                    match = re.search(r"/album/(?:bd|comics)/(\d+)-", album_url)
-                    if not match:
-                        continue
-                    album_id = int(match.group(1))
-                    volume_number = None
+                # Format Comics: /album/comics/133975-y-le-dernier-homme-1-no-man-s-land
+                match_id = re.search(r"/album/(?:bd|comics)/(\d+)", album_url)
+                if not match_id:
+                    logger.debug(f"Could not extract album ID from URL: {album_url}")
+                    continue
+
+                album_id = int(match_id.group(1))
+
+                # Extraire le numéro de tome depuis l'URL
+                # Plusieurs patterns possibles:
+                # - asterix-2-la-serpe-d-or (chiffre seul après le nom de série)
+                # - y-le-dernier-homme-1-no-man-s-land (chiffre avant le titre)
+                # - deadpool-tome-5-deadpool-vs-thanos (avec "tome")
+                volume_number = None
+
+                # Essayer de trouver un pattern comme "-NUMERO-" ou "-tome-NUMERO-"
+                patterns = [
+                    r"-(\d+)-[a-z]",  # -1-no (chiffre suivi d'un tiret et d'une lettre)
+                    r"-tome-(\d+)",   # -tome-5
+                    r"-t(\d+)-",      # -t5-
+                    r"-vol-(\d+)",    # -vol-3
+                    r"-volume-(\d+)", # -volume-2
+                ]
+
+                for pattern in patterns:
+                    match_vol = re.search(pattern, album_url, re.I)
+                    if match_vol:
+                        volume_number = int(match_vol.group(1))
+                        logger.debug(f"Found volume {volume_number} in URL using pattern: {pattern}")
+                        break
+
+                # Si toujours pas trouvé, essayer d'extraire depuis le titre du lien
+                if volume_number is None:
+                    # Chercher "Tome X", "T.X", "#X", "Volume X" dans le titre
+                    title_patterns = [
+                        r"(?:tome|t\.?)\s*(\d+)",
+                        r"#(\d+)",
+                        r"volume\s*(\d+)",
+                        r"^(\d+)\s*[-:]",  # Commence par un nombre
+                    ]
+
+                    for pattern in title_patterns:
+                        match_title = re.search(pattern, album_title, re.I)
+                        if match_title:
+                            volume_number = int(match_title.group(1))
+                            logger.debug(f"Found volume {volume_number} in title '{album_title}'")
+                            break
 
                 albums.append({
                     "id": album_id,
@@ -223,6 +292,11 @@ class BDPhileScraper(BaseScraper):
                     "volume_number": volume_number,
                     "url": album_url,
                 })
+
+                logger.debug(
+                    f"Parsed album: id={album_id}, vol={volume_number}, "
+                    f"title='{album_title[:50]}...', url={album_url}"
+                )
 
             except Exception as e:
                 logger.debug(f"Error parsing album link: {e}")
@@ -248,23 +322,75 @@ class BDPhileScraper(BaseScraper):
         Returns:
             Enriched MetadataResult with complete album information
         """
-        # Utiliser le volume_number fourni ou celui du résultat
+        # Récupérer l'ID depuis raw_data
+        series_id = result.raw_data.get("series_id")
+        if not series_id:
+            logger.warning(f"No series_id in result for '{result.series_name}'")
+            return result
+
+        # Si c'est un one-shot, récupérer directement les détails de l'album
+        is_oneshot = result.raw_data.get("is_oneshot", False)
+        logger.debug(f"Enriching '{result.series_name}': is_oneshot={is_oneshot}, raw_data={result.raw_data}")
+        if is_oneshot:
+            logger.info(f"Enriching one-shot '{result.series_name}' (album {series_id})")
+            album_type = result.raw_data.get("series_type", "bd")
+            album_result = await self.get_album_details(series_id, album_type)
+
+            if album_result:
+                # Préserver la confidence du résultat original
+                album_result.confidence = result.confidence
+                return album_result
+            return result
+
+        # Pour les séries, vérifier d'abord combien d'albums elles contiennent
+        # Si une série n'a qu'un seul album, c'est probablement un one-shot
+        logger.debug(f"Fetching series details for {series_id} to check album count")
+        series_details = await self.get_series_details(series_id)
+        if not series_details or not series_details.get("albums"):
+            logger.warning(f"No albums found for series {series_id}")
+            return result
+
+        album_count = len(series_details["albums"])
+        logger.debug(f"Series {series_id} has {album_count} album(s)")
+
+        # Vérifier si tous les albums n'ont pas de volume_number (= one-shot avec plusieurs éditions)
+        albums_with_volume = [a for a in series_details["albums"] if a.get("volume_number") is not None]
+
+        # Si aucun album n'a de volume_number ET qu'on ne cherche pas un volume spécifique,
+        # c'est probablement un one-shot -> récupérer le premier album unique
+        if len(albums_with_volume) == 0 and (volume_number is None or volume_number == 0):
+            logger.info(f"Series '{result.series_name}' has no volumes, treating as one-shot")
+            # Prendre le premier album unique (par ID)
+            unique_albums = {}
+            for album in series_details["albums"]:
+                aid = album["id"]
+                if aid not in unique_albums:
+                    unique_albums[aid] = album
+
+            # Prendre le premier album unique
+            if unique_albums:
+                album = list(unique_albums.values())[0]
+                album_id = album["id"]
+                album_type = result.raw_data.get("series_type", "bd")
+                logger.info(f"Fetching details for album {album_id}")
+                album_result = await self.get_album_details(album_id, album_type)
+
+                if album_result:
+                    # Préserver la confidence du résultat original
+                    album_result.confidence = result.confidence
+                    return album_result
+            return result
+
+        # Pour les séries multi-albums, utiliser le volume_number
         vol_num = volume_number or result.volume_number
 
         if not vol_num:
             logger.debug(f"No volume number provided for enrichment of '{result.series_name}'")
             return result
 
-        # Récupérer l'ID de la série depuis raw_data
-        series_id = result.raw_data.get("series_id")
-        if not series_id:
-            logger.warning(f"No series_id in result for '{result.series_name}'")
-            return result
-
         logger.info(f"Enriching '{result.series_name}' tome {vol_num} from series {series_id}")
 
-        # Récupérer les albums de la série
-        series_details = await self.get_series_details(series_id)
+        # Albums déjà récupérés ci-dessus
         if not series_details or not series_details.get("albums"):
             logger.warning(f"No albums found for series {series_id}")
             return result
@@ -277,17 +403,24 @@ class BDPhileScraper(BaseScraper):
                 break
 
         if not matching_album:
+            # Afficher la liste des albums disponibles pour debug
+            available_volumes = [
+                a.get("volume_number") for a in series_details["albums"]
+                if a.get("volume_number") is not None
+            ]
             logger.warning(
                 f"Album tome {vol_num} not found in series {series_id} "
-                f"({len(series_details['albums'])} albums)"
+                f"({len(series_details['albums'])} albums). "
+                f"Available volumes: {sorted(set(available_volumes))}"
             )
             return result
 
         # Récupérer les détails complets de l'album
         album_id = matching_album["id"]
-        logger.info(f"Fetching details for album {album_id}")
+        album_type = result.raw_data.get("series_type", "bd")
+        logger.info(f"Fetching details for album {album_id} (type: {album_type})")
 
-        album_result = await self.get_album_details(album_id)
+        album_result = await self.get_album_details(album_id, album_type)
 
         if album_result:
             # Préserver la confidence du résultat original
@@ -323,20 +456,30 @@ class BDPhileScraper(BaseScraper):
             logger.error(f"Invalid album ID: {item_id} - {e}")
             return None
 
-    async def get_album_details(self, album_id: int) -> Optional[MetadataResult]:
+    async def get_album_details(self, album_id: int, album_type: str = "bd") -> Optional[MetadataResult]:
         """
         Get detailed information about an album.
 
         Args:
             album_id: BDPhile album ID
+            album_type: Type of album ("bd" or "comics")
 
         Returns:
             MetadataResult with complete album information
         """
-        url = f"{self.BASE_URL}/album/bd/{album_id}"
+        # Essayer d'abord avec le type spécifié, puis l'autre si ça échoue
+        for try_type in [album_type, "comics" if album_type == "bd" else "bd"]:
+            url = f"{self.BASE_URL}/album/{try_type}/{album_id}"
 
-        html = await self._fetch(url)
-        if not html:
+            logger.debug(f"Fetching album details from: {url}")
+            html = await self._fetch(url)
+
+            # Si on a récupéré du HTML, c'est bon (raise_for_status a déjà vérifié le code HTTP)
+            # On vérifie juste que ce n'est pas une vraie page d'erreur
+            if html and "<title>404" not in html and "Page non trouvée" not in html:
+                break
+        else:
+            logger.warning(f"Could not fetch album {album_id} (tried bd and comics)")
             return None
 
         soup = BeautifulSoup(html, "html.parser")
@@ -443,18 +586,35 @@ class BDPhileScraper(BaseScraper):
         if cover_img:
             details["cover_url"] = cover_img.get("src")
 
-        # Synopsis
-        synopsis_div = soup.find("div", class_="synopsis")
-        if not synopsis_div:
-            synopsis_div = soup.find("div", id="synopsis")
-        if synopsis_div:
-            details["summary"] = synopsis_div.get_text(strip=True)
+        # Synopsis - peut être dans un <p> ou <div>
+        synopsis_elem = soup.find(class_="synopsis")
+        if not synopsis_elem:
+            synopsis_elem = soup.find(id="synopsis")
+        if not synopsis_elem:
+            # Chercher un h2 "Synopsis" suivi d'un <p>
+            synopsis_h2 = soup.find("h2", string=re.compile(r"Synopsis", re.I))
+            if synopsis_h2:
+                # Prendre le premier <p> qui suit
+                synopsis_elem = synopsis_h2.find_next("p")
+        if synopsis_elem:
+            details["summary"] = synopsis_elem.get_text(strip=True)
 
         # Déduire le nom de série depuis le titre complet si pas trouvé
         if "series_name" not in details and "full_title" in details:
             # Supprimer les suffixes de langue (FR, US, etc.)
             series_name = re.sub(r"(FR|US|UK|JP)$", "", details["full_title"]).strip()
+            # Supprimer "(one-shot)" du nom de série
+            series_name = re.sub(r"\s*\(one-shot\)\s*", "", series_name, flags=re.I).strip()
             details["series_name"] = series_name
+
+        # Détecter et gérer les one-shots
+        if "full_title" in details and re.search(r"\(one-shot\)", details["full_title"], re.I):
+            # C'est un one-shot
+            if "volume_number" not in details or details["volume_number"] is None:
+                details["volume_number"] = 0
+            # Si pas de titre spécifique, utiliser le nom de série
+            if "title" not in details or details["title"] is None:
+                details["title"] = details.get("series_name", "")
 
         return details if details else None
 

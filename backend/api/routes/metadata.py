@@ -102,6 +102,7 @@ async def match_book_metadata(
     book_id: int,
     auto_validate: bool = True,
     auto_validate_threshold: float = 0.90,
+    force_refresh: bool = False,
     db: Session = Depends(get_db),
 ):
     """
@@ -111,12 +112,13 @@ async def match_book_metadata(
         book_id: Book ID
         auto_validate: Automatically save if confidence >= threshold
         auto_validate_threshold: Confidence threshold for auto-validation
+        force_refresh: Force re-enrichment even if metadata already exists
         db: Database session
 
     Returns:
         Match results
     """
-    logger.info(f"Matching metadata for book {book_id}")
+    logger.info(f"Matching metadata for book {book_id} (force_refresh={force_refresh})")
 
     # Récupérer le livre
     book = BookCRUD.get(db, book_id)
@@ -125,7 +127,7 @@ async def match_book_metadata(
 
     # Vérifier si des métadonnées existent déjà
     existing_metadata = MetadataCRUD.get_by_book(db, book_id)
-    if existing_metadata:
+    if existing_metadata and not force_refresh:
         logger.info(f"Metadata already exists for book {book_id}")
         return {
             "status": "success",
@@ -133,6 +135,12 @@ async def match_book_metadata(
             "metadata_id": existing_metadata.id,
             "confidence": existing_metadata.confidence_score,
         }
+
+    # Si force_refresh et metadata existe, la supprimer d'abord
+    if existing_metadata and force_refresh:
+        logger.info(f"Force refresh: deleting existing metadata for book {book_id}")
+        MetadataCRUD.delete(db, existing_metadata.id)
+        db.flush()  # Forcer la suppression avant d'insérer la nouvelle
 
     # Matcher
     matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
@@ -293,6 +301,7 @@ async def batch_match_metadata(
 async def enrich_all_stream(
     auto_validate_threshold: float = 0.80,
     batch_size: int = 10,
+    force_refresh: bool = False,
     db: Session = Depends(get_db),
 ):
     """
@@ -302,6 +311,7 @@ async def enrich_all_stream(
     Args:
         auto_validate_threshold: Confidence threshold for auto-validation
         batch_size: Number of books to process in parallel (default: 10)
+        force_refresh: Force re-enrichment even if metadata already exists
         db: Database session
 
     Returns:
@@ -338,7 +348,7 @@ async def enrich_all_stream(
                     # Traiter le lot en parallèle
                     tasks = []
                     for book in batch:
-                        tasks.append(_enrich_single_book(book, matcher, auto_validate_threshold, db))
+                        tasks.append(_enrich_single_book(book, matcher, auto_validate_threshold, force_refresh, db))
 
                     # Attendre que tout le lot soit traité
                     batch_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -395,7 +405,7 @@ async def enrich_all_stream(
     )
 
 
-async def _enrich_single_book(book, matcher, threshold, db):
+async def _enrich_single_book(book, matcher, threshold, force_refresh, db):
     """
     Helper function to enrich a single book.
 
@@ -403,6 +413,7 @@ async def _enrich_single_book(book, matcher, threshold, db):
         book: Book object
         matcher: NameMatcher instance
         threshold: Confidence threshold
+        force_refresh: Force re-enrichment even if metadata already exists
         db: Database session
 
     Returns:
@@ -411,8 +422,13 @@ async def _enrich_single_book(book, matcher, threshold, db):
     try:
         # Vérifier si des métadonnées existent déjà
         existing_metadata = MetadataCRUD.get_by_book(db, book.id)
-        if existing_metadata:
+        if existing_metadata and not force_refresh:
             return "skipped"
+
+        # Si force_refresh et metadata existe, la supprimer d'abord
+        if existing_metadata and force_refresh:
+            MetadataCRUD.delete(db, existing_metadata.id)
+            db.flush()  # Forcer la suppression avant d'insérer la nouvelle
 
         # Chercher les correspondances
         matches = await matcher.match(book.filename, full_path=book.original_path)

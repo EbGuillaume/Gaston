@@ -220,18 +220,21 @@ class FuzzyMatcher:
                 number = int(match.group(2))
                 break
 
-        # Si le nom de série est générique ou vide, utiliser le dossier parent
-        generic_names = {"tome", "vol", "volume", "chapter", "chapitre", "ch", "t", "v"}
-        if full_path and (not series_name or series_name.lower() in generic_names):
-            import os
-            parent_folder = os.path.basename(os.path.dirname(full_path))
-            if parent_folder:
-                series_name = parent_folder
-                logger.debug(f"Using parent folder name as series: {series_name}")
-
-        # Si toujours pas de nom de série, utiliser le filename normalisé
+        # Si pas de nom de série trouvé, utiliser le filename normalisé
         if not series_name:
             series_name = normalized
+            logger.debug(f"No volume number found, using full filename as series: {series_name}")
+
+        # Si le nom de série est trop court ou générique, essayer le dossier parent
+        generic_names = {"tome", "vol", "volume", "chapter", "chapitre", "ch", "t", "v"}
+        if full_path and (len(series_name) < 3 or series_name.lower() in generic_names):
+            import os
+            parent_folder = os.path.basename(os.path.dirname(full_path))
+            # Vérifier que le dossier parent n'est pas un nom générique de dossier
+            generic_folders = {"bd_sample", "comics", "books", "library", "scan", "scans"}
+            if parent_folder and parent_folder.lower() not in generic_folders:
+                series_name = parent_folder
+                logger.debug(f"Using parent folder name as series: {series_name}")
 
         return (series_name, number)
 
