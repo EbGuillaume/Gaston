@@ -32,6 +32,22 @@ class BookResponse(BaseModel):
     publisher: Optional[str] = None
     confidence_score: Optional[float] = None
 
+    # Champs additionnels pour la fiche détaillée
+    summary: Optional[str] = None
+    writers: Optional[str] = None  # JSON array
+    pencillers: Optional[str] = None  # JSON array
+    inkers: Optional[str] = None  # JSON array
+    colorists: Optional[str] = None  # JSON array
+    letterers: Optional[str] = None  # JSON array
+    publication_date: Optional[str] = None
+    isbn: Optional[str] = None
+    page_count: Optional[int] = None
+    genres: Optional[str] = None  # JSON array
+    tags: Optional[str] = None  # JSON array
+    age_rating: Optional[str] = None
+    cover_url: Optional[str] = None
+    source: Optional[str] = None
+
 
 class BookListResponse(BaseModel):
     """Response model for book list."""
@@ -103,6 +119,21 @@ async def list_books(
             title=metadata.title if metadata else None,
             publisher=metadata.publisher if metadata else None,
             confidence_score=metadata.confidence_score if metadata else None,
+            # Champs additionnels
+            summary=metadata.summary if metadata else None,
+            writers=metadata.writers if metadata else None,
+            pencillers=metadata.pencillers if metadata else None,
+            inkers=metadata.inkers if metadata else None,
+            colorists=metadata.colorists if metadata else None,
+            letterers=metadata.letterers if metadata else None,
+            publication_date=metadata.publication_date if metadata else None,
+            isbn=metadata.isbn if metadata else None,
+            page_count=metadata.page_count if metadata else None,
+            genres=metadata.genres if metadata else None,
+            tags=metadata.tags if metadata else None,
+            age_rating=metadata.age_rating if metadata else None,
+            cover_url=metadata.cover_url if metadata else None,
+            source=metadata.source if metadata else None,
         )
 
         book_responses.append(book_response)
@@ -142,6 +173,21 @@ async def get_book(book_id: int, db: Session = Depends(get_db)):
         title=metadata.title if metadata else None,
         publisher=metadata.publisher if metadata else None,
         confidence_score=metadata.confidence_score if metadata else None,
+        # Champs additionnels
+        summary=metadata.summary if metadata else None,
+        writers=metadata.writers if metadata else None,
+        pencillers=metadata.pencillers if metadata else None,
+        inkers=metadata.inkers if metadata else None,
+        colorists=metadata.colorists if metadata else None,
+        letterers=metadata.letterers if metadata else None,
+        publication_date=metadata.publication_date if metadata else None,
+        isbn=metadata.isbn if metadata else None,
+        page_count=metadata.page_count if metadata else None,
+        genres=metadata.genres if metadata else None,
+        tags=metadata.tags if metadata else None,
+        age_rating=metadata.age_rating if metadata else None,
+        cover_url=metadata.cover_url if metadata else None,
+        source=metadata.source if metadata else None,
     )
 
 

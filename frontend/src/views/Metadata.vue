@@ -101,7 +101,13 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="book in books" :key="book.id" class="book-row">
+            <tr
+              v-for="book in books"
+              :key="book.id"
+              class="book-row"
+              @mouseenter="showBookCard(book, $event)"
+              @mouseleave="hideBookCard"
+            >
               <td>{{ book.id }}</td>
               <td class="filename">
                 <span :title="book.filename">{{ book.filename }}</span>
@@ -157,6 +163,59 @@
           >
             Suivant →
           </button>
+        </div>
+      </div>
+
+      <!-- Fiche détaillée du livre au survol -->
+      <div
+        v-if="hoveredBook && hoveredBook.has_metadata"
+        class="book-card"
+        :style="{ top: cardPosition.y + 'px', left: cardPosition.x + 'px' }"
+        @mouseenter="cancelHide"
+        @mouseleave="startHide"
+      >
+        <div class="book-card-content">
+          <div v-if="hoveredBook.cover_url" class="book-cover">
+            <img :src="hoveredBook.cover_url" :alt="hoveredBook.title || hoveredBook.series_name" />
+          </div>
+          <div class="book-details">
+            <h3 v-if="hoveredBook.series_name">{{ hoveredBook.series_name }}</h3>
+            <h4 v-if="hoveredBook.title">{{ hoveredBook.title }}</h4>
+            <p v-if="hoveredBook.volume_number" class="volume">
+              <strong>Volume:</strong> {{ hoveredBook.volume_number }}
+            </p>
+            <p v-if="hoveredBook.writers" class="authors">
+              <strong>Scénariste(s):</strong> {{ parseJsonField(hoveredBook.writers) }}
+            </p>
+            <p v-if="hoveredBook.pencillers" class="illustrators">
+              <strong>Dessinateur(s):</strong> {{ parseJsonField(hoveredBook.pencillers) }}
+            </p>
+            <p v-if="hoveredBook.publisher" class="publisher">
+              <strong>Éditeur:</strong> {{ hoveredBook.publisher }}
+            </p>
+            <p v-if="hoveredBook.publication_date" class="date">
+              <strong>Date de publication:</strong> {{ hoveredBook.publication_date }}
+            </p>
+            <p v-if="hoveredBook.page_count" class="pages">
+              <strong>Pages:</strong> {{ hoveredBook.page_count }}
+            </p>
+            <p v-if="hoveredBook.isbn" class="isbn">
+              <strong>ISBN:</strong> {{ hoveredBook.isbn }}
+            </p>
+            <p v-if="hoveredBook.genres" class="genres">
+              <strong>Genres:</strong> {{ parseJsonField(hoveredBook.genres) }}
+            </p>
+            <p v-if="hoveredBook.age_rating" class="age">
+              <strong>Âge:</strong> {{ hoveredBook.age_rating }}
+            </p>
+            <p v-if="hoveredBook.summary" class="summary">
+              <strong>Résumé:</strong><br />
+              {{ hoveredBook.summary }}
+            </p>
+            <p v-if="hoveredBook.source" class="source">
+              <em>Source: {{ hoveredBook.source }}</em>
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -386,6 +445,12 @@ const enrichProgressPercent = computed(() => {
   return Math.round((enrichProgress.current / enrichProgress.total) * 100)
 })
 
+// État pour la fiche au survol
+const hoveredBook = ref(null)
+const cardPosition = reactive({ x: 0, y: 0 })
+const keepCardVisible = ref(false)
+let hideTimeout = null
+
 const editForm = reactive({
   series_name: '',
   volume_number: null,
@@ -501,6 +566,107 @@ function getConfidenceClass(score) {
   if (score >= 0.9) return 'high'
   if (score >= 0.7) return 'medium'
   return 'low'
+}
+
+// Fonctions pour la fiche au survol
+function showBookCard(book, event) {
+  if (!book.has_metadata) return
+
+  // Toujours annuler le timeout de masquage quand on est sur une ligne
+  if (hideTimeout) {
+    clearTimeout(hideTimeout)
+    hideTimeout = null
+  }
+
+  // Si c'est le même livre et qu'on est déjà en train de l'afficher, ne rien faire d'autre
+  if (hoveredBook.value && hoveredBook.value.id === book.id) {
+    return
+  }
+
+  hoveredBook.value = book
+  keepCardVisible.value = false
+
+  // Positionner la carte au niveau de la souris
+  // Calculer la largeur en fonction de la taille de l'écran
+  let cardWidth = 800
+  const screenWidth = window.innerWidth
+  if (screenWidth <= 1366) {
+    cardWidth = Math.min(550, screenWidth * 0.6)
+  } else if (screenWidth <= 1600) {
+    cardWidth = Math.min(600, screenWidth * 0.55)
+  } else if (screenWidth <= 1920) {
+    cardWidth = Math.min(700, screenWidth * 0.5)
+  } else {
+    cardWidth = Math.min(800, screenWidth * 0.45)
+  }
+
+  const cardMaxHeight = window.innerHeight * 0.8  // 80% de la hauteur de l'écran
+  const offset = 20  // décalage par rapport à la souris
+  const padding = 10  // marge par rapport aux bords de l'écran
+
+  // Position de base : à droite de la souris
+  let x = event.clientX + offset
+  let y = event.clientY + offset
+
+  // Vérifier si la carte dépasserait de l'écran à droite
+  if (x + cardWidth > window.innerWidth - padding) {
+    // Afficher à gauche de la souris
+    x = event.clientX - cardWidth - offset
+    // Si ça dépasse encore à gauche, coller au bord gauche
+    if (x < padding) {
+      x = padding
+    }
+  }
+
+  // Gérer la position verticale pour qu'elle ne dépasse jamais
+  // S'assurer qu'on ne dépasse pas en haut
+  if (y < padding) {
+    y = padding
+  }
+
+  // S'assurer qu'on ne dépasse pas en bas
+  const maxY = window.innerHeight - cardMaxHeight - padding
+  if (y > maxY) {
+    y = maxY
+  }
+
+  cardPosition.x = x
+  cardPosition.y = y + window.scrollY
+}
+
+function hideBookCard() {
+  // Ajouter un délai pour laisser le temps de passer la souris sur la fiche
+  hideTimeout = setTimeout(() => {
+    if (!keepCardVisible.value) {
+      hoveredBook.value = null
+    }
+  }, 200) // 200ms de délai
+}
+
+function cancelHide() {
+  if (hideTimeout) {
+    clearTimeout(hideTimeout)
+    hideTimeout = null
+  }
+  keepCardVisible.value = true
+}
+
+function startHide() {
+  keepCardVisible.value = false
+  hideBookCard()
+}
+
+function parseJsonField(field) {
+  if (!field) return ''
+  try {
+    const parsed = JSON.parse(field)
+    if (Array.isArray(parsed)) {
+      return parsed.join(', ')
+    }
+    return field
+  } catch {
+    return field
+  }
 }
 
 async function editMetadata(book) {
@@ -1027,5 +1193,132 @@ onMounted(() => {
   background: #6c757d;
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+/* Fiche détaillée du livre au survol */
+.book-card {
+  position: fixed;
+  z-index: 1000;
+  background: white;
+  border: 2px solid var(--primary-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  width: min(800px, 45vw);
+  min-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: auto;
+}
+
+/* Ajustements pour petits écrans */
+@media (max-width: 1920px) {
+  .book-card {
+    width: min(700px, 50vw);
+  }
+}
+
+@media (max-width: 1600px) {
+  .book-card {
+    width: min(600px, 55vw);
+  }
+}
+
+@media (max-width: 1366px) {
+  .book-card {
+    width: min(550px, 60vw);
+    min-width: 450px;
+  }
+}
+
+/* Scrollbar personnalisée pour la fiche */
+.book-card::-webkit-scrollbar {
+  width: 8px;
+}
+
+.book-card::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.book-card::-webkit-scrollbar-thumb {
+  background: var(--primary-color);
+  border-radius: 4px;
+}
+
+.book-card::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary-color);
+}
+
+.book-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.book-cover {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #f8f9fa;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.book-cover img {
+  max-width: 100%;
+  max-height: 450px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.book-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.book-details h3 {
+  margin: 0;
+  color: var(--primary-color);
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.book-details h4 {
+  margin: 0;
+  color: var(--secondary-color);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.book-details p {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.book-details strong {
+  color: var(--secondary-color);
+  font-weight: 600;
+}
+
+.book-details .summary {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #555;
+}
+
+.book-details .source {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.8rem;
+  color: #999;
 }
 </style>
