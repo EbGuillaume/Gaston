@@ -18,11 +18,29 @@
           <option :value="false">Sans métadonnées</option>
         </select>
 
-        <select v-model="sortBy" class="select" @change="loadBooks">
-          <option value="id">ID</option>
-          <option value="confidence">Confiance</option>
-          <option value="series">Série</option>
-        </select>
+        <button
+          @click="enrichAllBooks"
+          class="btn btn-success"
+          :disabled="enrichingAll || loading"
+          title="Enrichir tous les livres sans métadonnées"
+        >
+          {{ enrichingAll ? `⏳ ${enrichProgress.current}/${enrichProgress.total}` : '✨ Enrichir tous' }}
+        </button>
+      </div>
+
+      <div v-if="enrichingAll" class="enrichment-progress">
+        <div class="progress-bar-container">
+          <div class="progress-bar" :style="{ width: enrichProgressPercent + '%' }"></div>
+        </div>
+        <div class="progress-text">
+          Enrichissement en cours: {{ enrichProgress.current }} / {{ enrichProgress.total }} livres
+          <span v-if="enrichProgress.currentBook" class="current-book">
+            ({{ enrichProgress.currentBook }})
+          </span>
+        </div>
+        <div v-if="estimatedTimeRemaining" class="estimated-time">
+          {{ estimatedTimeRemaining }}
+        </div>
       </div>
 
       <div v-if="loading" class="loading">Chargement...</div>
@@ -40,18 +58,59 @@
         <table v-else class="metadata-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Fichier</th>
-              <th>Série</th>
-              <th>Volume</th>
-              <th>Titre</th>
-              <th>Éditeur</th>
-              <th>Confiance</th>
+              <th class="sortable" @click="sortTable('id')">
+                #
+                <span class="sort-arrow" v-if="sortColumn === 'id'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('filename')">
+                Fichier
+                <span class="sort-arrow" v-if="sortColumn === 'filename'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('series_name')">
+                Série
+                <span class="sort-arrow" v-if="sortColumn === 'series_name'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('volume_number')">
+                Volume
+                <span class="sort-arrow" v-if="sortColumn === 'volume_number'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('title')">
+                Titre
+                <span class="sort-arrow" v-if="sortColumn === 'title'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('publisher')">
+                Éditeur
+                <span class="sort-arrow" v-if="sortColumn === 'publisher'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
+              <th class="sortable" @click="sortTable('confidence_score')">
+                Confiance
+                <span class="sort-arrow" v-if="sortColumn === 'confidence_score'">
+                  {{ sortOrder === 'asc' ? '↑' : '↓' }}
+                </span>
+              </th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="book in books" :key="book.id" class="book-row">
+            <tr
+              v-for="book in books"
+              :key="book.id"
+              class="book-row"
+              @mouseenter="showBookCard(book, $event)"
+              @mouseleave="hideBookCard"
+            >
               <td>{{ book.id }}</td>
               <td class="filename">
                 <span :title="book.filename">{{ book.filename }}</span>
@@ -107,6 +166,59 @@
           >
             Suivant →
           </button>
+        </div>
+      </div>
+
+      <!-- Fiche détaillée du livre au survol -->
+      <div
+        v-if="hoveredBook && hoveredBook.has_metadata"
+        class="book-card"
+        :style="{ top: cardPosition.y + 'px', left: cardPosition.x + 'px' }"
+        @mouseenter="cancelHide"
+        @mouseleave="startHide"
+      >
+        <div class="book-card-content">
+          <div v-if="hoveredBook.cover_url" class="book-cover">
+            <img :src="hoveredBook.cover_url" :alt="hoveredBook.title || hoveredBook.series_name" />
+          </div>
+          <div class="book-details">
+            <h3 v-if="hoveredBook.series_name">{{ hoveredBook.series_name }}</h3>
+            <h4 v-if="hoveredBook.title">{{ hoveredBook.title }}</h4>
+            <p v-if="hoveredBook.volume_number" class="volume">
+              <strong>Volume:</strong> {{ hoveredBook.volume_number }}
+            </p>
+            <p v-if="hoveredBook.writers" class="authors">
+              <strong>Scénariste(s):</strong> {{ parseJsonField(hoveredBook.writers) }}
+            </p>
+            <p v-if="hoveredBook.pencillers" class="illustrators">
+              <strong>Dessinateur(s):</strong> {{ parseJsonField(hoveredBook.pencillers) }}
+            </p>
+            <p v-if="hoveredBook.publisher" class="publisher">
+              <strong>Éditeur:</strong> {{ hoveredBook.publisher }}
+            </p>
+            <p v-if="hoveredBook.publication_date" class="date">
+              <strong>Date de publication:</strong> {{ hoveredBook.publication_date }}
+            </p>
+            <p v-if="hoveredBook.page_count" class="pages">
+              <strong>Pages:</strong> {{ hoveredBook.page_count }}
+            </p>
+            <p v-if="hoveredBook.isbn" class="isbn">
+              <strong>ISBN:</strong> {{ hoveredBook.isbn }}
+            </p>
+            <p v-if="hoveredBook.genres" class="genres">
+              <strong>Genres:</strong> {{ parseJsonField(hoveredBook.genres) }}
+            </p>
+            <p v-if="hoveredBook.age_rating" class="age">
+              <strong>Âge:</strong> {{ hoveredBook.age_rating }}
+            </p>
+            <p v-if="hoveredBook.summary" class="summary">
+              <strong>Résumé:</strong><br />
+              {{ hoveredBook.summary }}
+            </p>
+            <p v-if="hoveredBook.source" class="source">
+              <em>Source: {{ hoveredBook.source }}</em>
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -305,6 +417,9 @@
 
 <script setup>
 import { ref, onMounted, computed, reactive } from 'vue'
+import { useLibraryStore } from '../stores/library'
+
+const libraryStore = useLibraryStore()
 
 const books = ref([])
 const totalBooks = ref(0)
@@ -312,7 +427,8 @@ const loading = ref(false)
 const error = ref(null)
 const searchQuery = ref('')
 const filterMetadata = ref(null)
-const sortBy = ref('id')
+const sortColumn = ref('id')
+const sortOrder = ref('asc')
 
 const limit = 50
 const currentPage = ref(1)
@@ -323,6 +439,44 @@ const editingBook = ref(null)
 const loadingMetadata = ref(false)
 const saving = ref(false)
 const enriching = reactive({})
+const enrichingAll = ref(false)
+const enrichProgress = reactive({
+  current: 0,
+  total: 0,
+  currentBook: '',
+  startTime: 0
+})
+
+const enrichProgressPercent = computed(() => {
+  if (enrichProgress.total === 0) return 0
+  return Math.round((enrichProgress.current / enrichProgress.total) * 100)
+})
+
+const estimatedTimeRemaining = computed(() => {
+  if (!enrichingAll.value || enrichProgress.current === 0 || enrichProgress.startTime === 0) {
+    return ''
+  }
+
+  const elapsed = Date.now() - enrichProgress.startTime
+  const avgTimePerBook = elapsed / enrichProgress.current
+  const booksRemaining = enrichProgress.total - enrichProgress.current
+  const timeRemainingMs = avgTimePerBook * booksRemaining
+
+  const minutes = Math.floor(timeRemainingMs / 60000)
+  const seconds = Math.floor((timeRemainingMs % 60000) / 1000)
+
+  if (minutes > 0) {
+    return `Temps estimé restant: ${minutes}m ${seconds}s`
+  } else {
+    return `Temps estimé restant: ${seconds}s`
+  }
+})
+
+// État pour la fiche au survol
+const hoveredBook = ref(null)
+const cardPosition = reactive({ x: 0, y: 0 })
+const keepCardVisible = ref(false)
+let hideTimeout = null
 
 const editForm = reactive({
   series_name: '',
@@ -363,23 +517,8 @@ async function loadBooks() {
 
     const data = await response.json()
 
-    // Trier côté client selon le choix
-    let sortedBooks = data.books
-    if (sortBy.value === 'confidence') {
-      sortedBooks = [...data.books].sort((a, b) => {
-        const scoreA = a.confidence_score || 0
-        const scoreB = b.confidence_score || 0
-        return scoreB - scoreA
-      })
-    } else if (sortBy.value === 'series') {
-      sortedBooks = [...data.books].sort((a, b) => {
-        const seriesA = a.series_name || ''
-        const seriesB = b.series_name || ''
-        return seriesA.localeCompare(seriesB)
-      })
-    }
-
-    books.value = sortedBooks
+    // Trier côté client selon sortColumn et sortOrder
+    books.value = sortBooks(data.books)
     totalBooks.value = data.total
   } catch (e) {
     error.value = e.message
@@ -396,6 +535,44 @@ function handleSearch() {
     currentPage.value = 1
     loadBooks()
   }, 300)
+}
+
+function sortBooks(booksArray) {
+  const sorted = [...booksArray].sort((a, b) => {
+    let valueA = a[sortColumn.value]
+    let valueB = b[sortColumn.value]
+
+    // Gérer les valeurs nulles/undefined
+    if (valueA === null || valueA === undefined) valueA = ''
+    if (valueB === null || valueB === undefined) valueB = ''
+
+    // Tri numérique pour id, volume_number et confidence_score
+    if (['id', 'volume_number', 'confidence_score'].includes(sortColumn.value)) {
+      valueA = Number(valueA) || 0
+      valueB = Number(valueB) || 0
+      return sortOrder.value === 'asc' ? valueA - valueB : valueB - valueA
+    }
+
+    // Tri alphabétique pour les autres colonnes
+    const comparison = String(valueA).localeCompare(String(valueB), 'fr', { numeric: true })
+    return sortOrder.value === 'asc' ? comparison : -comparison
+  })
+
+  return sorted
+}
+
+function sortTable(column) {
+  // Si on clique sur la même colonne, inverser l'ordre
+  if (sortColumn.value === column) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    // Nouvelle colonne, ordre croissant par défaut
+    sortColumn.value = column
+    sortOrder.value = 'asc'
+  }
+
+  // Re-trier les livres actuels
+  books.value = sortBooks(books.value)
 }
 
 function loadNextPage() {
@@ -416,6 +593,107 @@ function getConfidenceClass(score) {
   if (score >= 0.9) return 'high'
   if (score >= 0.7) return 'medium'
   return 'low'
+}
+
+// Fonctions pour la fiche au survol
+function showBookCard(book, event) {
+  if (!book.has_metadata) return
+
+  // Toujours annuler le timeout de masquage quand on est sur une ligne
+  if (hideTimeout) {
+    clearTimeout(hideTimeout)
+    hideTimeout = null
+  }
+
+  // Si c'est le même livre et qu'on est déjà en train de l'afficher, ne rien faire d'autre
+  if (hoveredBook.value && hoveredBook.value.id === book.id) {
+    return
+  }
+
+  hoveredBook.value = book
+  keepCardVisible.value = false
+
+  // Positionner la carte au niveau de la souris
+  // Calculer la largeur en fonction de la taille de l'écran
+  let cardWidth = 800
+  const screenWidth = window.innerWidth
+  if (screenWidth <= 1366) {
+    cardWidth = Math.min(550, screenWidth * 0.6)
+  } else if (screenWidth <= 1600) {
+    cardWidth = Math.min(600, screenWidth * 0.55)
+  } else if (screenWidth <= 1920) {
+    cardWidth = Math.min(700, screenWidth * 0.5)
+  } else {
+    cardWidth = Math.min(800, screenWidth * 0.45)
+  }
+
+  const cardMaxHeight = window.innerHeight * 0.8  // 80% de la hauteur de l'écran
+  const offset = 20  // décalage par rapport à la souris
+  const padding = 10  // marge par rapport aux bords de l'écran
+
+  // Position de base : à droite de la souris
+  let x = event.clientX + offset
+  let y = event.clientY + offset
+
+  // Vérifier si la carte dépasserait de l'écran à droite
+  if (x + cardWidth > window.innerWidth - padding) {
+    // Afficher à gauche de la souris
+    x = event.clientX - cardWidth - offset
+    // Si ça dépasse encore à gauche, coller au bord gauche
+    if (x < padding) {
+      x = padding
+    }
+  }
+
+  // Gérer la position verticale pour qu'elle ne dépasse jamais
+  // S'assurer qu'on ne dépasse pas en haut
+  if (y < padding) {
+    y = padding
+  }
+
+  // S'assurer qu'on ne dépasse pas en bas
+  const maxY = window.innerHeight - cardMaxHeight - padding
+  if (y > maxY) {
+    y = maxY
+  }
+
+  cardPosition.x = x
+  cardPosition.y = y  // Pas besoin d'ajouter scrollY car position: fixed
+}
+
+function hideBookCard() {
+  // Ajouter un délai pour laisser le temps de passer la souris sur la fiche
+  hideTimeout = setTimeout(() => {
+    if (!keepCardVisible.value) {
+      hoveredBook.value = null
+    }
+  }, 200) // 200ms de délai
+}
+
+function cancelHide() {
+  if (hideTimeout) {
+    clearTimeout(hideTimeout)
+    hideTimeout = null
+  }
+  keepCardVisible.value = true
+}
+
+function startHide() {
+  keepCardVisible.value = false
+  hideBookCard()
+}
+
+function parseJsonField(field) {
+  if (!field) return ''
+  try {
+    const parsed = JSON.parse(field)
+    if (Array.isArray(parsed)) {
+      return parsed.join(', ')
+    }
+    return field
+  } catch {
+    return field
+  }
 }
 
 async function editMetadata(book) {
@@ -550,13 +828,134 @@ async function enrichBook(bookId) {
   }
 }
 
+function enrichAllBooks() {
+  // Vérifier si un enrichissement est déjà en cours
+  const enrichmentInProgress = localStorage.getItem('enrichment_in_progress')
+  if (enrichmentInProgress === 'true') {
+    const confirmRestart = confirm('Un enrichissement semble déjà en cours. Voulez-vous le relancer ? (Cela peut créer des conflits)')
+    if (!confirmRestart) {
+      return
+    }
+  }
+
+  try {
+    enrichingAll.value = true
+    enrichProgress.current = 0
+    enrichProgress.total = 0
+    enrichProgress.currentBook = ''
+    enrichProgress.startTime = Date.now()
+
+    // Marquer qu'un enrichissement est en cours
+    localStorage.setItem('enrichment_in_progress', 'true')
+    localStorage.setItem('enrichment_start_time', enrichProgress.startTime.toString())
+
+    libraryStore.enrichAllStream({
+      onFound: (total) => {
+        enrichProgress.total = total
+        localStorage.setItem('enrichment_total', total.toString())
+        console.log(`Found ${total} books to enrich`)
+      },
+      onProgress: (current, total, filename) => {
+        enrichProgress.current = current
+        enrichProgress.total = total
+        enrichProgress.currentBook = filename
+
+        // Sauvegarder la progression dans localStorage
+        localStorage.setItem('enrichment_current', current.toString())
+        localStorage.setItem('enrichment_total', total.toString())
+        localStorage.setItem('enrichment_current_book', filename)
+
+        console.log(`Progress: ${current}/${total} - ${filename}`)
+      },
+      onComplete: (result) => {
+        enrichingAll.value = false
+
+        // Marquer l'enrichissement comme terminé
+        localStorage.removeItem('enrichment_in_progress')
+        localStorage.removeItem('enrichment_current')
+        localStorage.removeItem('enrichment_total')
+        localStorage.removeItem('enrichment_current_book')
+        localStorage.removeItem('enrichment_start_time')
+
+        // Recharger la liste pour afficher les modifications
+        loadBooks()
+
+        // Afficher le résumé
+        const message = `Enrichissement terminé:\n✅ ${result.success} livre(s) enrichi(s)\n⏭️ ${result.skipped} livre(s) ignoré(s)\n❌ ${result.failed} livre(s) échoué(s)`
+        alert(message)
+
+        // Réinitialiser les compteurs
+        enrichProgress.current = 0
+        enrichProgress.total = 0
+        enrichProgress.currentBook = ''
+      },
+      onError: (message) => {
+        error.value = message
+        enrichingAll.value = false
+
+        // Nettoyer localStorage en cas d'erreur
+        localStorage.removeItem('enrichment_in_progress')
+        localStorage.removeItem('enrichment_current')
+        localStorage.removeItem('enrichment_total')
+        localStorage.removeItem('enrichment_current_book')
+        localStorage.removeItem('enrichment_start_time')
+
+        enrichProgress.current = 0
+        enrichProgress.total = 0
+        enrichProgress.currentBook = ''
+      }
+    })
+  } catch (e) {
+    console.error('Error during batch enrichment:', e)
+    error.value = e.message
+    enrichingAll.value = false
+
+    // Nettoyer localStorage en cas d'erreur
+    localStorage.removeItem('enrichment_in_progress')
+    localStorage.removeItem('enrichment_current')
+    localStorage.removeItem('enrichment_total')
+    localStorage.removeItem('enrichment_current_book')
+    localStorage.removeItem('enrichment_start_time')
+  }
+}
+
 function closeModal() {
   editingBook.value = null
   resetEditForm()
 }
 
+function checkEnrichmentStatus() {
+  const inProgress = localStorage.getItem('enrichment_in_progress')
+  if (inProgress === 'true') {
+    const current = parseInt(localStorage.getItem('enrichment_current') || '0')
+    const total = parseInt(localStorage.getItem('enrichment_total') || '0')
+    const currentBook = localStorage.getItem('enrichment_current_book') || ''
+    const startTime = parseInt(localStorage.getItem('enrichment_start_time') || '0')
+
+    // Vérifier si l'enrichissement n'est pas trop vieux (plus de 2 heures)
+    const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000)
+    if (startTime < twoHoursAgo) {
+      // Nettoyer un enrichissement trop ancien
+      localStorage.removeItem('enrichment_in_progress')
+      localStorage.removeItem('enrichment_current')
+      localStorage.removeItem('enrichment_total')
+      localStorage.removeItem('enrichment_current_book')
+      localStorage.removeItem('enrichment_start_time')
+      return
+    }
+
+    // Restaurer la progression visuelle
+    enrichingAll.value = true
+    enrichProgress.current = current
+    enrichProgress.total = total
+    enrichProgress.currentBook = currentBook
+    enrichProgress.startTime = startTime
+  }
+}
+
 onMounted(() => {
   loadBooks()
+  checkEnrichmentStatus()
 })
 </script>
 
@@ -605,8 +1004,24 @@ onMounted(() => {
   background: #f8f9fa;
   padding: 0.75rem;
   text-align: left;
+}
+
+.metadata-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: background-color 0.2s;
+}
+
+.metadata-table th.sortable:hover {
+  background: #e9ecef;
+}
+
+.sort-arrow {
+  margin-left: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--primary-color);
   font-weight: bold;
-  border-bottom: 2px solid var(--border-color);
 }
 
 .metadata-table td {
@@ -804,5 +1219,202 @@ onMounted(() => {
 
 .btn-secondary:hover {
   background: #5a6268;
+}
+
+.enrichment-progress {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+  border-left: 4px solid var(--primary-color);
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 24px;
+  background: #e9ecef;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.progress-text {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.current-book {
+  display: block;
+  margin-top: 0.25rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #777;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.estimated-time {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--primary-color);
+  font-weight: 500;
+  font-style: italic;
+}
+
+.btn-success {
+  background: #28a745;
+  color: white;
+  white-space: nowrap;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #218838;
+  opacity: 1;
+}
+
+.btn-success:disabled {
+  background: #6c757d;
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Fiche détaillée du livre au survol */
+.book-card {
+  position: fixed;
+  z-index: 1000;
+  background: white;
+  border: 2px solid var(--primary-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  width: min(800px, 45vw);
+  min-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: auto;
+}
+
+/* Ajustements pour petits écrans */
+@media (max-width: 1920px) {
+  .book-card {
+    width: min(700px, 50vw);
+  }
+}
+
+@media (max-width: 1600px) {
+  .book-card {
+    width: min(600px, 55vw);
+  }
+}
+
+@media (max-width: 1366px) {
+  .book-card {
+    width: min(550px, 60vw);
+    min-width: 450px;
+  }
+}
+
+/* Scrollbar personnalisée pour la fiche */
+.book-card::-webkit-scrollbar {
+  width: 8px;
+}
+
+.book-card::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.book-card::-webkit-scrollbar-thumb {
+  background: var(--primary-color);
+  border-radius: 4px;
+}
+
+.book-card::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary-color);
+}
+
+.book-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.book-cover {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #f8f9fa;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.book-cover img {
+  max-width: 100%;
+  max-height: 450px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.book-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.book-details h3 {
+  margin: 0;
+  color: var(--primary-color);
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.book-details h4 {
+  margin: 0;
+  color: var(--secondary-color);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.book-details p {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.book-details strong {
+  color: var(--secondary-color);
+  font-weight: 600;
+}
+
+.book-details .summary {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #555;
+}
+
+.book-details .source {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.8rem;
+  color: #999;
 }
 </style>

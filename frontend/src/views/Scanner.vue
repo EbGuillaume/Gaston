@@ -47,8 +47,16 @@
         {{ enriching ? `Enrichissement ${enrichProgress}%...` : '✨ Enrichir tous les livres' }}
       </button>
 
-      <div v-if="enrichResult" :class="enrichResult.success > 0 ? 'success' : 'error'">
-        {{ enrichResult.success > 0 ? '✓' : '✗' }} Enrichissement terminé: {{ enrichResult.success }} succès, {{ enrichResult.failed }} échecs
+      <div v-if="enrichResult" class="enrichment-result">
+        <div class="result-line success" v-if="enrichResult.success > 0">
+          ✅ {{ enrichResult.success }} livre(s) enrichi(s) avec succès
+        </div>
+        <div class="result-line info" v-if="enrichResult.skipped > 0">
+          ⏭️ {{ enrichResult.skipped }} livre(s) ignoré(s) (déjà enrichis)
+        </div>
+        <div class="result-line error" v-if="enrichResult.failed > 0">
+          ❌ {{ enrichResult.failed }} livre(s) échoué(s)
+        </div>
       </div>
     </div>
 
@@ -139,7 +147,8 @@ async function handleEnrichAll() {
       onComplete: (result) => {
         enrichResult.value = {
           success: result.success,
-          failed: result.failed + result.skipped
+          skipped: result.skipped,
+          failed: result.failed
         }
         enriching.value = false
       },
@@ -235,5 +244,36 @@ function formatSize(bytes) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.enrichment-result {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.result-line {
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.result-line.success {
+  background: #d4edda;
+  color: #155724;
+  border-left: 4px solid #28a745;
+}
+
+.result-line.info {
+  background: #d1ecf1;
+  color: #0c5460;
+  border-left: 4px solid #17a2b8;
+}
+
+.result-line.error {
+  background: #f8d7da;
+  color: #721c24;
+  border-left: 4px solid #dc3545;
 }
 </style>
