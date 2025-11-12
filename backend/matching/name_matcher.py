@@ -94,12 +94,21 @@ class NameMatcher:
                     continue
 
             # Enrichir les résultats avec les détails complets des albums si possible
-            if volume_number is not None and hasattr(scraper, 'enrich_with_album_details'):
+            # Pour les séries, on a besoin d'un volume_number
+            # Pour les one-shots, on peut enrichir sans volume_number
+            if hasattr(scraper, 'enrich_with_album_details'):
                 enriched_results = []
                 for result in results:
                     try:
-                        enriched = await scraper.enrich_with_album_details(result, volume_number)
-                        enriched_results.append(enriched)
+                        # Vérifier si c'est un one-shot
+                        is_oneshot = result.raw_data.get("is_oneshot", False) if result.raw_data else False
+
+                        # Enrichir si on a un volume_number OU si c'est un one-shot
+                        if volume_number is not None or is_oneshot:
+                            enriched = await scraper.enrich_with_album_details(result, volume_number)
+                            enriched_results.append(enriched)
+                        else:
+                            enriched_results.append(result)
                     except Exception as e:
                         logger.warning(f"Error enriching result for {result.series_name}: {e}")
                         # Garder le résultat non enrichi en cas d'erreur

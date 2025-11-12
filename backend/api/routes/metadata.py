@@ -140,6 +140,7 @@ async def match_book_metadata(
     if existing_metadata and force_refresh:
         logger.info(f"Force refresh: deleting existing metadata for book {book_id}")
         MetadataCRUD.delete(db, existing_metadata.id)
+        db.flush()  # Forcer la suppression avant d'insérer la nouvelle
 
     # Matcher
     matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
@@ -427,6 +428,7 @@ async def _enrich_single_book(book, matcher, threshold, force_refresh, db):
         # Si force_refresh et metadata existe, la supprimer d'abord
         if existing_metadata and force_refresh:
             MetadataCRUD.delete(db, existing_metadata.id)
+            db.flush()  # Forcer la suppression avant d'insérer la nouvelle
 
         # Chercher les correspondances
         matches = await matcher.match(book.filename, full_path=book.original_path)
