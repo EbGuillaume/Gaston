@@ -138,9 +138,17 @@ async def match_book_metadata(
 
     # Si force_refresh et metadata existe, la supprimer d'abord
     if existing_metadata and force_refresh:
-        logger.info(f"Force refresh: deleting existing metadata for book {book_id}")
-        MetadataCRUD.delete(db, existing_metadata.id)
-        db.flush()  # Forcer la suppression avant d'insérer la nouvelle
+        try:
+            logger.info(f"Force refresh: deleting existing metadata for book {book_id}")
+            MetadataCRUD.delete(db, existing_metadata.id)
+            db.flush()  # Forcer la suppression avant d'insérer la nouvelle
+        except Exception as del_error:
+            logger.error(f"Error deleting existing metadata for book {book_id}: {del_error}")
+            db.rollback()  # Rollback en cas d'erreur de suppression
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error deleting existing metadata: {str(del_error)}"
+            )
 
     # Matcher
     matcher = NameMatcher(use_cache=False)  # Cache désactivé pour debug
@@ -161,36 +169,44 @@ async def match_book_metadata(
         # Auto-validation si confiance suffisante
         if auto_validate and best_match.confidence >= auto_validate_threshold:
             # Sauvegarder les métadonnées
-            metadata = MetadataCRUD.create(
-                db,
-                book_id=book_id,
-                source=best_match.source,
-                confidence_score=best_match.confidence,
-                series_name=best_match.series_name,
-                volume_number=best_match.volume_number,
-                title=best_match.title,
-                summary=best_match.summary,
-                writers=",".join(best_match.writers) if best_match.writers else None,
-                pencillers=",".join(best_match.pencillers) if best_match.pencillers else None,
-                publisher=best_match.publisher,
-                publication_date=best_match.publication_date,
-                cover_url=best_match.cover_url,
-            )
+            try:
+                metadata = MetadataCRUD.create(
+                    db,
+                    book_id=book_id,
+                    source=best_match.source,
+                    confidence_score=best_match.confidence,
+                    series_name=best_match.series_name,
+                    volume_number=best_match.volume_number,
+                    title=best_match.title,
+                    summary=best_match.summary,
+                    writers=",".join(best_match.writers) if best_match.writers else None,
+                    pencillers=",".join(best_match.pencillers) if best_match.pencillers else None,
+                    publisher=best_match.publisher,
+                    publication_date=best_match.publication_date,
+                    cover_url=best_match.cover_url,
+                )
 
-            # Marquer le livre comme ayant des métadonnées
-            BookCRUD.update(db, book_id, has_metadata=True)
+                # Marquer le livre comme ayant des métadonnées
+                BookCRUD.update(db, book_id, has_metadata=True)
 
-            logger.info(
-                f"Auto-validated and saved metadata for book {book_id} "
-                f"(confidence: {best_match.confidence:.2f})"
-            )
+                logger.info(
+                    f"Auto-validated and saved metadata for book {book_id} "
+                    f"(confidence: {best_match.confidence:.2f})"
+                )
 
-            return {
-                "status": "success",
-                "message": "Metadata automatically saved",
-                "metadata_id": metadata.id,
-                "confidence": best_match.confidence,
-            }
+                return {
+                    "status": "success",
+                    "message": "Metadata automatically saved",
+                    "metadata_id": metadata.id,
+                    "confidence": best_match.confidence,
+                }
+            except Exception as create_error:
+                logger.error(f"Error creating metadata for book {book_id}: {create_error}")
+                db.rollback()  # Rollback en cas d'erreur de création
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error creating metadata: {str(create_error)}"
+                )
 
         # Sinon, retourner les options
         match_responses = []
@@ -348,7 +364,7 @@ async def enrich_all_stream(
                     # Traiter le lot en parallèle
                     tasks = []
                     for book in batch:
-                        tasks.append(_enrich_single_book(book, matcher, auto_validate_threshold, force_refresh, db))
+                        tasks.append(_enrich_single_book(book, matcher, auto_validate_threshold, force_refresh))
 
                     # Attendre que tout le lot soit traité
                     batch_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -405,30 +421,43 @@ async def enrich_all_stream(
     )
 
 
-async def _enrich_single_book(book, matcher, threshold, force_refresh, db):
+async def _enrich_single_book(book, matcher, threshold, force_refresh):
     """
     Helper function to enrich a single book.
+    Creates its own DB session to isolate transactions.
 
     Args:
         book: Book object
         matcher: NameMatcher instance
         threshold: Confidence threshold
         force_refresh: Force re-enrichment even if metadata already exists
-        db: Database session
 
     Returns:
         "success", "skipped", or "failed"
     """
+    # Créer une nouvelle session DB isolée pour ce livre
+    from backend.database.session import SessionLocal
+    db = SessionLocal()
+
     try:
         # Vérifier si des métadonnées existent déjà
         existing_metadata = MetadataCRUD.get_by_book(db, book.id)
+
+        # Si metadata existe et pas de force_refresh, skip ce livre
         if existing_metadata and not force_refresh:
+            logger.debug(f"Skipping book {book.id} - already has metadata")
             return "skipped"
 
-        # Si force_refresh et metadata existe, la supprimer d'abord
+        # Si metadata existe et force_refresh=True, la supprimer d'abord
         if existing_metadata and force_refresh:
-            MetadataCRUD.delete(db, existing_metadata.id)
-            db.flush()  # Forcer la suppression avant d'insérer la nouvelle
+            try:
+                logger.info(f"Force refresh: deleting existing metadata for book {book.id}")
+                MetadataCRUD.delete(db, existing_metadata.id)
+                db.commit()  # Commit la suppression
+            except Exception as del_error:
+                logger.error(f"Error deleting existing metadata for book {book.id}: {del_error}")
+                db.rollback()  # Rollback en cas d'erreur de suppression
+                return "failed"
 
         # Chercher les correspondances
         matches = await matcher.match(book.filename, full_path=book.original_path)
@@ -441,32 +470,41 @@ async def _enrich_single_book(book, matcher, threshold, force_refresh, db):
         # Auto-validation si confiance suffisante
         if best_match.confidence >= threshold:
             # Sauvegarder les métadonnées
-            MetadataCRUD.create(
-                db,
-                book_id=book.id,
-                source=best_match.source,
-                confidence_score=best_match.confidence,
-                series_name=best_match.series_name,
-                volume_number=best_match.volume_number,
-                title=best_match.title,
-                summary=best_match.summary,
-                writers=",".join(best_match.writers) if best_match.writers else None,
-                pencillers=",".join(best_match.pencillers) if best_match.pencillers else None,
-                publisher=best_match.publisher,
-                publication_date=best_match.publication_date,
-                cover_url=best_match.cover_url,
-            )
+            try:
+                MetadataCRUD.create(
+                    db,
+                    book_id=book.id,
+                    source=best_match.source,
+                    confidence_score=best_match.confidence,
+                    series_name=best_match.series_name,
+                    volume_number=best_match.volume_number,
+                    title=best_match.title,
+                    summary=best_match.summary,
+                    writers=",".join(best_match.writers) if best_match.writers else None,
+                    pencillers=",".join(best_match.pencillers) if best_match.pencillers else None,
+                    publisher=best_match.publisher,
+                    publication_date=best_match.publication_date,
+                    cover_url=best_match.cover_url,
+                )
 
-            # Marquer le livre comme ayant des métadonnées
-            BookCRUD.update(db, book.id, has_metadata=True)
+                # Marquer le livre comme ayant des métadonnées
+                BookCRUD.update(db, book.id, has_metadata=True)
 
-            return "success"
+                db.commit()  # Commit la transaction
+                return "success"
+            except Exception as create_error:
+                logger.error(f"Error creating metadata for book {book.id}: {create_error}")
+                db.rollback()  # Rollback en cas d'erreur de création
+                return "failed"
         else:
             return "failed"
 
     except Exception as e:
         logger.error(f"Error enriching book {book.id}: {e}")
+        db.rollback()  # Rollback en cas d'erreur générale
         return "failed"
+    finally:
+        db.close()  # Toujours fermer la session
 
 
 @router.get("/cache/stats")
